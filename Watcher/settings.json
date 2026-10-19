@@ -1,0 +1,35 @@
+{
+  "location": {
+    "name": "Grand Forks, ND",
+    "latitude": 47.9253,
+    "longitude": -97.0329,
+    "timeZoneID": "America/Chicago"
+  },
+  "forecastEnabled": true,
+  "forecastKp": 4.67,
+  "earlyEnabled": true,
+  "tomorrowEnabled": true,
+  "tonightEnabled": true,
+
+  "nowcastEnabled": true,
+  "bzThreshold": -7,
+  "bzMinutes": 15,
+  "shockEnabled": true,
+  "activityEnabled": true,
+  "minActivity": 1,
+  "darknessGate": true,
+  "maxSunAltitude": -6,
+
+  "cmeEnabled": true,
+  "flareEnabled": true,
+  "flareClass": "X1.0",
+  "noaaEnabled": true,
+  "noaaMinK": 5,
+
+  "cooldownHours": 3,
+  "quietHoursEnabled": false,
+  "quietStartHour": 0,
+  "quietEndHour": 6,
+  "skipWhenCloudy": false,
+  "cloudLimit": 85
+}

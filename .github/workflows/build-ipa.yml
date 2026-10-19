@@ -1,0 +1,121 @@
+name: Build IPA
+
+on:
+  push:
+    paths-ignore:
+      - "**.md"
+      - "Watcher/**"
+      - ".github/workflows/aurora-watcher.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: AuroraKit tests (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: swift test --package-path Packages/AuroraKit
+
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AuroraWatch.xcodeproj \
+            -scheme AuroraWatch \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build 2>&1 | tee build.log | grep -E "error:|warning: |\*\* BUILD" || true
+          test -d build/Build/Products/Release-iphoneos/AuroraWatch.app || { echo "::error::Build failed"; grep -E "error:" build.log | head -50; exit 1; }
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AuroraWatch.app Payload/
+          zip -qry AuroraWatch.ipa Payload
+          ls -lh AuroraWatch.ipa
+
+      - name: Write AltStore / SideStore source
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, datetime
+          repo, sha, run = os.environ["REPO"], os.environ["SHA"], os.environ["RUN_NUMBER"]
+          size = os.path.getsize("AuroraWatch.ipa")
+          url = f"https://github.com/{repo}/releases/download/latest/AuroraWatch.ipa"
+          date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          version = {"version": "1.0.0", "buildVersion": run, "date": date, "downloadURL": url, "size": size,
+                     "minOSVersion": "16.0", "localizedDescription": f"Build {run} ({sha[:7]})"}
+          app = {
+              "name": "Aurora Watch",
+              "bundleIdentifier": "com.brownie5596.aurorawatch",
+              "developerName": repo.split("/")[0],
+              "subtitle": "Aurora alerts for Grand Forks",
+              "localizedDescription": "Live solar wind, Kp forecasts, CME arrival estimates and notifications when there's a good chance of seeing the northern lights.",
+              "iconURL": f"https://raw.githubusercontent.com/{repo}/{sha}/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+              "tintColor": "40F299",
+              "category": "utilities",
+              "versions": [version],
+              # legacy fields for older AltStore / SideStore versions
+              "version": "1.0.0", "versionDate": date, "downloadURL": url, "size": size,
+              "appPermissions": {"entitlements": [], "privacy": {}},
+          }
+          source = {"name": "Aurora Watch", "identifier": "com.brownie5596.aurorawatch.source",
+                    "subtitle": "Personal aurora alerts", "apps": [app], "news": []}
+          json.dump(source, open("altstore-source.json", "w"), indent=2)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AuroraWatch-ipa
+          path: |
+            AuroraWatch.ipa
+            altstore-source.json
+
+      - name: Publish rolling "latest" release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest AuroraWatch.ipa altstore-source.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Aurora Watch (latest build)" \
+            --notes "Unsigned build ${{ github.run_number }} from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA::7}.
+
+          **Install:** download \`AuroraWatch.ipa\` and open it with Sideloadly, AltStore or SideStore (they sign it with your Apple ID).
+          **Auto-updates in AltStore/SideStore:** add this source URL: https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/altstore-source.json"
