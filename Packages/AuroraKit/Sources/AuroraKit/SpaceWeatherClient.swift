@@ -158,10 +158,15 @@ public final class SpaceWeatherClient {
         let primary = URL(string: "https://kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)")!
         do {
             return try FeedParser.enlilArrivals(try await data(primary))
-        } catch {
+        } catch let primaryError {
             let key = nasaAPIKey?.isEmpty == false ? nasaAPIKey! : "DEMO_KEY"
             let fallback = URL(string: "https://api.nasa.gov/DONKI/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)&api_key=\(key)")!
-            return try FeedParser.enlilArrivals(try await data(fallback))
+            do {
+                return try FeedParser.enlilArrivals(try await data(fallback))
+            } catch {
+                throw URLError(.cannotConnectToHost, userInfo: [NSLocalizedDescriptionKey:
+                    "CCMC: \(describe(primaryError)); api.nasa.gov: \(describe(error))"])
+            }
         }
     }
 

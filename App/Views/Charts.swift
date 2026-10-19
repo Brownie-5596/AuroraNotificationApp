@@ -229,10 +229,11 @@ struct KpBarChart: View {
         let now = Date()
         Chart {
             ForEach(points, id: \.time) { p in
-                BarMark(
-                    xStart: .value("Start", p.time.addingTimeInterval(600)),
-                    xEnd: .value("End", p.end.addingTimeInterval(-600)),
-                    y: .value("Kp", max(p.kp, 0.15))
+                RectangleMark(
+                    xStart: .value("Start", p.time.addingTimeInterval(900)),
+                    xEnd: .value("End", p.end.addingTimeInterval(-900)),
+                    yStart: .value("Zero", 0),
+                    yEnd: .value("Kp", max(p.kp, 0.15))
                 )
                 .foregroundStyle(Theme.kpColor(p.kp).opacity(p.kind == .predicted ? 0.55 : 1))
             }
@@ -252,7 +253,7 @@ struct KpBarChart: View {
             AxisMarks(values: .stride(by: .day)) { value in
                 AxisGridLine()
                 AxisValueLabel {
-                    if let date = value.as(Date.self) { Text(TimeText.format(date, tz, "EEE d")) }
+                    if let date = value.as(Date.self) { Text(TimeText.format(date, tz, "EEE")) }
                 }
             }
         }

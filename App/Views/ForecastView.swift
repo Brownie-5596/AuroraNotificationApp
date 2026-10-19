@@ -107,7 +107,7 @@ struct ForecastView: View {
             let upcoming = snapshot.cmeArrivals.filter { $0.arrival > Date().addingTimeInterval(-12 * 3600) }
             if upcoming.isEmpty {
                 Text(snapshot.errors["enlil"] != nil && snapshot.cmeFetchedAt == nil
-                     ? "Couldn't reach NASA DONKI (\(snapshot.errors["enlil"]!))."
+                     ? "NASA's CME service (DONKI) isn't responding right now — \(snapshot.errors["enlil"]!). It'll retry automatically."
                      : "No Earth-directed CMEs predicted by NASA's WSA-ENLIL model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
