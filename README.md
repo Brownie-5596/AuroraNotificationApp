@@ -71,7 +71,7 @@ For dependable real-time pushes, this repo includes a **cloud watcher**: the sam
 1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
 2. In this repo: **Settings → Secrets and variables → Actions → New repository secret** → name `NTFY_TOPIC`, value = your topic.
 3. Optionally edit [`Watcher/settings.json`](Watcher/settings.json) to change the thresholds (same options as in the app; `minActivity`: 1 = Possible, 2 = Likely, 3 = Strong).
-4. The workflow must be on the **default branch** (scheduled workflows only run there). Test it with **Actions → Aurora watcher (ntfy push) → Run workflow**.
+4. The workflow must be on the repo's **default branch** (scheduled workflows only run there — right now that's this branch). Test it with **Actions → Aurora watcher (ntfy push) → Run workflow** (tick "dry run" to just see what it would send).
 
 Notes: GitHub can delay scheduled runs by several minutes at busy times, and pauses schedules after 60 days without any repo activity (re-enable on the Actions tab). The repo is public, so Actions minutes are free.
 
@@ -92,6 +92,8 @@ Packages/AuroraKit/       Shared engine — runs on iOS and Linux
   Tests/                  unit tests with real NOAA fixtures
 Watcher/settings.json     thresholds for the cloud watcher
 ```
+
+CI: **Build IPA** (Linux engine tests + unsigned IPA + release), **UI smoke test** (launches the app in the iOS Simulator against live data and screenshots every tab — see the run's artifacts), and the optional **Aurora watcher**.
 
 Run the engine tests on any machine with Swift: `swift test --package-path Packages/AuroraKit`.
 Try the watcher locally without sending anything: `swift run --package-path Packages/AuroraKit aurora-watch --dry-run`.
