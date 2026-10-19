@@ -62,7 +62,8 @@ enum Notifier {
         content.body = alert.body
         content.sound = .default
         content.threadIdentifier = alert.kind.group
-        content.interruptionLevel = alert.priority >= 4 ? .timeSensitive : .active
+        // Time-sensitive delivery needs an entitlement sideloaded apps can't get, so stay "active".
+        content.interruptionLevel = .active
         content.relevanceScore = Double(alert.priority) / 5
         let request = UNNotificationRequest(identifier: alert.id, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)

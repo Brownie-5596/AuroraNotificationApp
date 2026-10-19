@@ -55,7 +55,6 @@ targets:
         UIUserInterfaceStyle: Dark
         UIBackgroundModes:
           - fetch
-          - processing
         BGTaskSchedulerPermittedIdentifiers:
           - com.brownie5596.aurorawatch.refresh
         ITSAppUsesNonExemptEncryption: false
