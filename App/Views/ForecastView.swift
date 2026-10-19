@@ -7,37 +7,45 @@ struct ForecastView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    if let snapshot = model.snapshot {
-                        let tz = model.location.timeZone
-                        nightsCard
-                        Card(title: "3-day Kp forecast (3-hour blocks)", systemImage: "chart.bar.xaxis") {
-                            KpBarChart(points: snapshot.kpForecast.filter { $0.end > Date().addingTimeInterval(-24 * 3600) },
-                                       thresholds: model.location.visibility, tz: tz)
-                            if let max = snapshot.upcomingKp(now: Date()).max(by: { $0.kp < $1.kp }) {
-                                Text("Highest expected: Kp \(KpFormat.label(max.kp))\(KpFormat.gLabel(max.kp).map { " (\($0))" } ?? "") at \(LocalTime(tz: tz).dayTime(max.time))")
-                                    .font(.caption).foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let snapshot = model.snapshot {
+                            let tz = model.location.timeZone
+                            nightsCard
+                            Card(title: "3-day Kp forecast (3-hour blocks)", systemImage: "chart.bar.xaxis") {
+                                KpBarChart(points: snapshot.kpForecast.filter { $0.end > Date().addingTimeInterval(-24 * 3600) },
+                                           thresholds: model.location.visibility, tz: tz)
+                                if let max = snapshot.upcomingKp(now: Date()).max(by: { $0.kp < $1.kp }) {
+                                    Text("Highest expected: Kp \(KpFormat.label(max.kp))\(KpFormat.gLabel(max.kp).map { " (\($0))" } ?? "") at \(LocalTime(tz: tz).dayTime(max.time))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
+                            if let probs = snapshot.geomagProbabilities, !probs.rows.isEmpty {
+                                ProbabilityCard(probs: probs).id("probs")
+                            }
+                            if let scales = snapshot.scales { ScalesForecastCard(scales: scales) }
+                            cmeCard(snapshot).id("cme")
+                            TransitCalculator(windSpeed: snapshot.latestPlasma?.speed ?? 400)
+                            if !snapshot.outlook27.isEmpty { OutlookCard(days: snapshot.outlook27, thresholds: model.location.visibility, tz: tz) }
+                            if let product = snapshot.threeDayForecast { TextProductCard(product: product, icon: "doc.text") }
+                            if let product = snapshot.geomagForecast { TextProductCard(product: product, icon: "globe.americas") }
+                            if let raw = snapshot.outlook27Raw {
+                                TextProductCard(product: FeedParser.textProduct(raw), icon: "calendar")
+                            }
+                        } else {
+                            ProgressView().padding(.top, 80)
                         }
-                        if let probs = snapshot.geomagProbabilities, !probs.rows.isEmpty {
-                            ProbabilityCard(probs: probs)
-                        }
-                        if let scales = snapshot.scales { ScalesForecastCard(scales: scales) }
-                        cmeCard(snapshot)
-                        TransitCalculator(windSpeed: snapshot.latestPlasma?.speed ?? 400)
-                        if !snapshot.outlook27.isEmpty { OutlookCard(days: snapshot.outlook27, thresholds: model.location.visibility, tz: tz) }
-                        if let product = snapshot.threeDayForecast { TextProductCard(product: product, icon: "doc.text") }
-                        if let product = snapshot.geomagForecast { TextProductCard(product: product, icon: "globe.americas") }
-                        if let raw = snapshot.outlook27Raw {
-                            TextProductCard(product: FeedParser.textProduct(raw), icon: "calendar")
-                        }
-                    } else {
-                        ProgressView().padding(.top, 80)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
+                }
+                .onAppear {
+                    // `-scrollTo probs|cme` launch argument for the UI smoke test.
+                    if let anchor = UserDefaults.standard.string(forKey: "scrollTo") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { proxy.scrollTo(anchor, anchor: .top) }
                     }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
             }
             .refreshable { await model.refresh() }
             .navigationTitle("Forecast")

@@ -17,7 +17,7 @@ struct SkyView: View {
                         icon: "globe.americas.fill",
                         listURL: URL(string: swpc + "/products/animations/ovation_north_24h.json")!,
                         latestURL: URL(string: swpc + "/images/animations/ovation/north/latest.jpg")!,
-                        caption: "Green → red = increasing probability of aurora. Grand Forks is at the bottom-centre edge of the map; aurora reaching the northern US means it's worth looking."
+                        caption: "Green → red = increasing probability of aurora. Grand Forks sits just south of the US–Canada border in the middle of the continent — when the green band reaches the border near you, it's worth looking north."
                     )
                     AnimationCard(
                         title: "WSA-ENLIL solar wind prediction",

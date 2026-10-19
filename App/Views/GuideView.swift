@@ -48,7 +48,7 @@ struct GuideView: View {
                 • Kp \(t.camera.f(1))+ — maybe on a phone/camera long exposure, low in the north
                 • Kp \(t.horizon.f(1))+ — usually visible by eye on the northern horizon
                 • Kp \(t.overhead.f(1))+ — can be overhead
-                NOAA writes Kp in thirds: 5- = 4.67, 5o = 5.00, 5+ = 5.33. G1 storms start at 5-.
+                NOAA writes Kp in thirds: 5- = 4.67, 5 = 5.00, 5+ = 5.33. G1 storms start at 5-.
                 """)
                 section("Bz — the most important number", """
                 Bz is the north–south direction of the solar wind's magnetic field (in nT). **Negative = south = good.**

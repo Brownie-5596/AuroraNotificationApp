@@ -122,7 +122,7 @@ final class ScienceTests: XCTestCase {
 
     func testKpLabels() {
         XCTAssertEqual(KpFormat.label(4.67), "5-")
-        XCTAssertEqual(KpFormat.label(5.0), "5o")
+        XCTAssertEqual(KpFormat.label(5.0), "5")
         XCTAssertEqual(KpFormat.label(5.33), "5+")
         XCTAssertEqual(KpFormat.label(0.33), "0+")
         XCTAssertEqual(KpFormat.gScale(4.67), 1)
@@ -302,7 +302,7 @@ final class AnalysisTests: XCTestCase {
         var state = AlertState()
         let alerts = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: now)
         XCTAssertEqual(alerts.map(\.kind), [.forecastTomorrow])
-        XCTAssertTrue(alerts[0].body.contains("Kp 5o"))
+        XCTAssertTrue(alerts[0].body.contains("Kp 5 "))
 
         // Same forecast later: nothing. Upgraded by a full step: alert again.
         XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: now.addingTimeInterval(3600)).isEmpty)

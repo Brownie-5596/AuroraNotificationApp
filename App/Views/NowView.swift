@@ -7,22 +7,26 @@ struct NowView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    if let snapshot = model.snapshot, let nowcast = model.nowcast {
-                        header(snapshot)
-                        ChanceCard(nowcast: nowcast, location: model.location)
-                        TilesGrid(snapshot: snapshot, nowcast: nowcast)
-                        BzStreakCard(snapshot: snapshot, threshold: model.settings.bzThreshold, tz: model.location.timeZone)
-                        ArrivalCard(snapshot: snapshot, nowcast: nowcast, tz: model.location.timeZone)
-                        solarWindCharts(snapshot)
-                        indicesCharts(snapshot)
-                    } else {
-                        ProgressView("Loading space weather…").padding(.top, 80)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let snapshot = model.snapshot, let nowcast = model.nowcast {
+                            header(snapshot)
+                            ChanceCard(nowcast: nowcast, location: model.location)
+                            TilesGrid(snapshot: snapshot, nowcast: nowcast).id("tiles")
+                            BzStreakCard(snapshot: snapshot, threshold: model.settings.bzThreshold, tz: model.location.timeZone)
+                            ArrivalCard(snapshot: snapshot, nowcast: nowcast, tz: model.location.timeZone)
+                            solarWindCharts(snapshot).id("wind")
+                            indicesCharts(snapshot).id("indices")
+                        } else {
+                            ProgressView("Loading space weather…").padding(.top, 80)
+                        }
                     }
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
+                .onChange(of: model.snapshot?.fetchedAt) { _ in scrollForSmokeTest(proxy) }
+                .onAppear { scrollForSmokeTest(proxy) }
             }
             .refreshable { await model.refresh() }
             .navigationTitle("Aurora Now")
@@ -33,6 +37,12 @@ struct NowView: View {
             }
             .screenBackground()
         }
+    }
+
+    /// `-scrollTo wind` launch argument, used by the UI smoke test to screenshot further down.
+    func scrollForSmokeTest(_ proxy: ScrollViewProxy) {
+        guard let anchor = UserDefaults.standard.string(forKey: "scrollTo") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { proxy.scrollTo(anchor, anchor: .top) }
     }
 
     func header(_ snapshot: SpaceWeatherSnapshot) -> some View {

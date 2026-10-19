@@ -191,14 +191,14 @@ public struct VisibilityThresholds: Codable, Hashable {
 }
 
 public enum KpFormat {
-    /// SWPC-style label: 4.67 → "5-", 5.00 → "5o", 5.33 → "5+".
+    /// SWPC-style label: 4.67 → "5-", 5.00 → "5", 5.33 → "5+".
     public static func label(_ kp: Double) -> String {
         let thirds = Int((kp * 3).rounded())
         let whole = thirds / 3
         switch thirds % 3 {
         case 1: return "\(whole)+"
         case 2: return "\(whole + 1)-"
-        default: return "\(whole)o"
+        default: return "\(whole)"
         }
     }
 

@@ -63,14 +63,24 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl status_bar "$UDID" override --time "21:41" --batteryLevel 100 --cellularBars 4 || true
           mkdir -p shots
-          for tab in now forecast sky alerts settings; do
-            xcrun simctl launch "$UDID" com.brownie5596.aurorawatch -uiSmoke YES -initialTab "$tab"
-            sleep $([ "$tab" = now ] && echo 40 || echo 15)
-            xcrun simctl io "$UDID" screenshot "shots/$tab.png"
+          shot() { # name tab [scrollTo]
+            xcrun simctl launch "$UDID" com.brownie5596.aurorawatch -uiSmoke YES -initialTab "$2" ${3:+-scrollTo "$3"}
+            sleep "$4"
+            xcrun simctl io "$UDID" screenshot "shots/$1.png"
             # make sure the app is still alive (didn't crash)
-            xcrun simctl spawn "$UDID" launchctl list | grep -q aurorawatch || { echo "::error::App not running after launching $tab tab"; exit 1; }
+            xcrun simctl spawn "$UDID" launchctl list | grep -q aurorawatch || { echo "::error::App not running after $1"; exit 1; }
             xcrun simctl terminate "$UDID" com.brownie5596.aurorawatch || true
-          done
+          }
+          shot now now "" 40
+          shot now-tiles now tiles 15
+          shot now-wind now wind 15
+          shot now-indices now indices 15
+          shot forecast forecast "" 15
+          shot forecast-probs forecast probs 15
+          shot forecast-cme forecast cme 15
+          shot sky sky "" 15
+          shot alerts alerts "" 10
+          shot settings settings "" 10
           ls -la shots
 
       - name: Crash logs
