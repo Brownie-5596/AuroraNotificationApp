@@ -196,6 +196,7 @@ struct TilesGrid: View {
 
     var body: some View {
         let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+        let kp = nowcast.estimatedKp ?? snapshot.latestKp?.kp
         VStack(spacing: 8) {
             HStack(spacing: 6) {
                 Text("NOAA scales").font(.caption).foregroundStyle(.secondary)
@@ -205,30 +206,33 @@ struct TilesGrid: View {
                 ScaleBadge(letter: "G", value: snapshot.scales?.current?.g)
             }
             LazyVGrid(columns: columns, spacing: 8) {
-                let kp = nowcast.estimatedKp ?? snapshot.latestKp?.kp
-                StatTile(title: "Kp", value: kp.map { KpFormat.label($0) } ?? "--",
-                         color: kp.map(Theme.kpColor) ?? .primary,
-                         footnote: kp.map { "est. \($0.f(2))" })
-                StatTile(title: "Bz", value: nowcast.bz.f(), unit: "nT",
-                         color: (nowcast.bz ?? 0) < 0 ? Theme.south : Theme.north,
-                         footnote: nowcast.bzMean30.map { "30m avg \($0.f())" })
-                StatTile(title: "Bt", value: snapshot.latestMag?.bt.f() ?? "--", unit: "nT")
-                StatTile(title: "Speed", value: nowcast.speed.f(0), unit: "km/s",
-                         color: (nowcast.speed ?? 0) >= 500 ? .orange : .primary)
-                StatTile(title: "Density", value: nowcast.density.f(), unit: "p/cm³")
-                StatTile(title: "Temp", value: snapshot.latestPlasma?.temperature.map { "\(Int($0 / 1000))k" } ?? "--", unit: "K")
-                StatTile(title: "Ey", value: nowcast.electricField.f(), unit: "mV/m",
-                         color: (nowcast.electricField ?? 0) >= 3 ? Theme.aurora : .primary)
-                StatTile(title: "Hemi power", value: nowcast.hemiPower.f(0), unit: "GW",
-                         color: (nowcast.hemiPower ?? 0) >= 50 ? Theme.aurora : .primary)
-                StatTile(title: "X-ray", value: snapshot.latestXray.map { FlareClass.label(flux: $0.flux) } ?? "--")
-                StatTile(title: "OVATION", value: nowcast.ovation.map { "\($0.maxInView)" } ?? "--", unit: "%",
-                         footnote: nowcast.ovation.map { "overhead \($0.overhead)%" })
-                StatTile(title: "Pressure",
-                         value: (nowcast.speed.flatMap { v in nowcast.density.map { SolarWind.dynamicPressure(speed: v, density: $0) } }).f(),
-                         unit: "nPa")
-                StatTile(title: "Bz south", value: nowcast.streak.map { $0.isSouth ? TimeText.duration($0.duration) : "0 min" } ?? "--",
-                         color: (nowcast.streak?.isSouth ?? false) ? Theme.south : .primary)
+                Group {
+                    StatTile(title: "Kp", value: kp.map { KpFormat.label($0) } ?? "--",
+                             color: kp.map(Theme.kpColor) ?? .primary,
+                             footnote: kp.map { "est. \($0.f(2))" })
+                    StatTile(title: "Bz", value: nowcast.bz.f(), unit: "nT",
+                             color: (nowcast.bz ?? 0) < 0 ? Theme.south : Theme.north,
+                             footnote: nowcast.bzMean30.map { "30m avg \($0.f())" })
+                    StatTile(title: "Bt", value: snapshot.latestMag?.bt.f() ?? "--", unit: "nT")
+                    StatTile(title: "Speed", value: nowcast.speed.f(0), unit: "km/s",
+                             color: (nowcast.speed ?? 0) >= 500 ? .orange : .primary)
+                    StatTile(title: "Density", value: nowcast.density.f(), unit: "p/cm³")
+                    StatTile(title: "Temp", value: snapshot.latestPlasma?.temperature.map { "\(Int($0 / 1000))k" } ?? "--", unit: "K")
+                    StatTile(title: "Ey", value: nowcast.electricField.f(), unit: "mV/m",
+                             color: (nowcast.electricField ?? 0) >= 3 ? Theme.aurora : .primary)
+                }
+                Group {
+                    StatTile(title: "Hemi power", value: nowcast.hemiPower.f(0), unit: "GW",
+                             color: (nowcast.hemiPower ?? 0) >= 50 ? Theme.aurora : .primary)
+                    StatTile(title: "X-ray", value: snapshot.latestXray.map { FlareClass.label(flux: $0.flux) } ?? "--")
+                    StatTile(title: "OVATION", value: nowcast.ovation.map { "\($0.maxInView)" } ?? "--", unit: "%",
+                             footnote: nowcast.ovation.map { "overhead \($0.overhead)%" })
+                    StatTile(title: "Pressure",
+                             value: (nowcast.speed.flatMap { v in nowcast.density.map { SolarWind.dynamicPressure(speed: v, density: $0) } }).f(),
+                             unit: "nPa")
+                    StatTile(title: "Bz south", value: nowcast.streak.map { $0.isSouth ? TimeText.duration($0.duration) : "0 min" } ?? "--",
+                             color: (nowcast.streak?.isSouth ?? false) ? Theme.south : .primary)
+                }
             }
         }
     }

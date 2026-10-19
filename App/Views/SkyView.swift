@@ -1,4 +1,5 @@
 import AuroraKit
+import Combine
 import SwiftUI
 
 /// OVATION aurora map, WSA-ENLIL solar wind model and live Sun / coronagraph imagery.
@@ -140,6 +141,7 @@ struct AnimationCard: View {
     @State private var playing = false
     @State private var images: [URL: UIImage] = [:]
     @State private var loadingFrames = false
+    @State private var latestID = UUID()
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -148,7 +150,7 @@ struct AnimationCard: View {
                 if let url = currentURL, let image = images[url] {
                     Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 10))
                 } else if let latestURL, frames.isEmpty || !playing {
-                    RemoteImage(url: latestURL, id: UUID())
+                    RemoteImage(url: latestURL, id: latestID)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 200)
                 }
@@ -161,9 +163,9 @@ struct AnimationCard: View {
                     } label: {
                         Image(systemName: playing ? "pause.fill" : "play.fill")
                     }
-                    Slider(value: $index, in: 0...Double(frames.count - 1), step: 1) { editing in
+                    Slider(value: $index, in: 0...Double(frames.count - 1), step: 1, onEditingChanged: { editing in
                         if editing { playing = false }
-                    }
+                    })
                     .onChange(of: index) { _ in Task { await load(currentURL) } }
                     Text(frameLabel).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                 }

@@ -30,7 +30,8 @@ enum AlertRunner {
 
         if reason == "background" { store.lastBackgroundRun = Date() }
         store.log("\(reason): \(alerts.isEmpty ? "no new alerts" : alerts.map(\.title).joined(separator: ", "))")
-        await MainActor.run { AppModel.shared.apply(snapshot: snapshot, state: state) }
+        let finalState = state
+        await MainActor.run { AppModel.shared.apply(snapshot: snapshot, state: finalState) }
         return true
     }
 }

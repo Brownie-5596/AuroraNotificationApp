@@ -43,7 +43,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
-          set -o pipefail
+          set +e
           xcodebuild \
             -project AuroraWatch.xcodeproj \
             -scheme AuroraWatch \
@@ -54,8 +54,15 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
-            build 2>&1 | tee build.log | grep -E "error:|warning: |\*\* BUILD" || true
-          test -d build/Build/Products/Release-iphoneos/AuroraWatch.app || { echo "::error::Build failed"; grep -E "error:" build.log | head -50; exit 1; }
+            build > build.log 2>&1
+          status=$?
+          set -e
+          grep -E "(error|warning): " build.log | sort -u | head -100 || true
+          tail -3 build.log
+          if [ $status -ne 0 ] || [ ! -f build/Build/Products/Release-iphoneos/AuroraWatch.app/AuroraWatch ]; then
+            echo "::error::xcodebuild failed (exit $status)"
+            exit 1
+          fi
 
       - name: Package IPA
         run: |
@@ -63,6 +70,8 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/AuroraWatch.app Payload/
           zip -qry AuroraWatch.ipa Payload
           ls -lh AuroraWatch.ipa
+          # Sanity check: a real build is several MB.
+          [ "$(stat -f%z AuroraWatch.ipa)" -gt 500000 ] || { echo "::error::IPA looks too small"; exit 1; }
 
       - name: Write AltStore / SideStore source
         env:

@@ -91,7 +91,7 @@ struct GuideView: View {
 
     func section(_ title: String, _ body: String) -> some View {
         Card(title: title, systemImage: "book") {
-            Text(.init(body)).font(.subheadline)
+            Text(LocalizedStringKey(body)).font(.subheadline)
         }
     }
 }
@@ -105,7 +105,7 @@ struct PushSetupView: View {
                         .font(.subheadline)
                 }
                 Card(title: "Setup (5 minutes)", systemImage: "list.number") {
-                    Text(.init("""
+                    Text(LocalizedStringKey("""
                     1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
                     2. In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**, name `NTFY_TOPIC`, value = your topic.
                     3. Optional: edit `Watcher/settings.json` in the repo to change thresholds (same options as this screen).

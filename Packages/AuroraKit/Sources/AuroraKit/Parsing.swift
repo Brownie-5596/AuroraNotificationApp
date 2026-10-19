@@ -125,7 +125,7 @@ public enum SWDate {
         monthNumbers[abbreviation.prefix(3).lowercased()]
     }
 
-    static func utc(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0) -> Date {
+    public static func utc(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0) -> Date {
         let days = daysFromCivil(year: year, month: month, day: day)
         return Date(timeIntervalSince1970: Double(days) * 86400 + Double(hour * 3600 + minute * 60))
     }
