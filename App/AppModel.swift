@@ -27,6 +27,14 @@ final class AppModel: ObservableObject {
     private init() {
         settings = Store.shared.settings
         snapshot = Store.shared.loadSnapshot()
+        // Launch argument used by the UI smoke test: `-initialTab forecast`
+        switch UserDefaults.standard.string(forKey: "initialTab") {
+        case "forecast": selectedTab = .forecast
+        case "sky": selectedTab = .sky
+        case "alerts": selectedTab = .alerts
+        case "settings": selectedTab = .settings
+        default: break
+        }
         history = Store.shared.alertState.history.reversed()
         recompute()
     }

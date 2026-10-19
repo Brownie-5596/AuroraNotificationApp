@@ -23,6 +23,7 @@ struct ContentView: View {
                 .tag(AppModel.Tab.settings)
         }
         .task {
+            guard !UserDefaults.standard.bool(forKey: "uiSmoke") else { return }
             if await Notifier.status() == .notDetermined { _ = await Notifier.requestPermission() }
         }
     }

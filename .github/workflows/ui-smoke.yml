@@ -1,0 +1,84 @@
+name: UI smoke test
+
+# Builds for the iOS Simulator, launches the app against live NOAA data and
+# screenshots every tab (uploaded as a workflow artifact).
+
+on:
+  push:
+    paths:
+      - "App/**"
+      - "Packages/**"
+      - "project.yml"
+      - ".github/workflows/ui-smoke.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ui-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          for runtime in sorted(d, reverse=True):
+              if 'iOS' not in runtime: continue
+              for dev in d[runtime]:
+                  if dev['name'].startswith('iPhone') and 'Pro' in dev['name']:
+                      print(dev['udid']); sys.exit()
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Build for simulator
+        run: |
+          set +e
+          xcodebuild -project AuroraWatch.xcodeproj -scheme AuroraWatch -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build -skipPackagePluginValidation build > build.log 2>&1
+          status=$?
+          grep -E "(error|warning): " build.log | sort -u | head -50
+          tail -2 build.log
+          exit $status
+
+      - name: Launch and screenshot each tab
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          APP=build/Build/Products/Debug-iphonesimulator/AuroraWatch.app
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl status_bar "$UDID" override --time "21:41" --batteryLevel 100 --cellularBars 4 || true
+          mkdir -p shots
+          for tab in now forecast sky alerts settings; do
+            xcrun simctl launch "$UDID" com.brownie5596.aurorawatch -uiSmoke YES -initialTab "$tab"
+            sleep $([ "$tab" = now ] && echo 40 || echo 15)
+            xcrun simctl io "$UDID" screenshot "shots/$tab.png"
+            # make sure the app is still alive (didn't crash)
+            xcrun simctl spawn "$UDID" launchctl list | grep -q aurorawatch || { echo "::error::App not running after launching $tab tab"; exit 1; }
+            xcrun simctl terminate "$UDID" com.brownie5596.aurorawatch || true
+          done
+          ls -la shots
+
+      - name: Crash logs
+        if: failure()
+        run: ls -la ~/Library/Logs/DiagnosticReports/ | tail -5 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: shots/
