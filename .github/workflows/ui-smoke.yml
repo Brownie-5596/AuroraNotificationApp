@@ -95,8 +95,8 @@ jobs:
           xcrun simctl launch "$UDID" com.apple.Preferences
           sleep 200
           xcrun simctl spawn "$UDID" launchctl list | grep -q aurorawatch || { echo "::error::App was suspended/killed in the background"; exit 1; }
-          # Read the app's activity log through cfprefsd (the plist on disk can lag behind).
-          xcrun simctl spawn "$UDID" defaults read com.brownie5596.aurorawatch activityLog > log.txt || true
+          DATA=$(xcrun simctl get_app_container "$UDID" com.brownie5596.aurorawatch data)
+          cp "$DATA/Library/Caches/activity.log" log.txt || touch log.txt
           tail -15 log.txt
           RUNS=$(grep -c "night watch:" log.txt || true)
           echo "$RUNS Night Watch checks while in the background"

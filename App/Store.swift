@@ -48,6 +48,20 @@ final class Store {
         var entries = defaults.stringArray(forKey: "activityLog") ?? []
         entries.append("\(stamp) — \(message)")
         defaults.set(Array(entries.suffix(60)), forKey: "activityLog")
+        // Also keep a plain-text copy (read by the UI smoke test; handy for debugging).
+        if let line = "\(stamp) — \(message)\n".data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: logURL) {
+                handle.seekToEndOfFile()
+                handle.write(line)
+                try? handle.close()
+            } else {
+                try? line.write(to: logURL)
+            }
+        }
+    }
+
+    private var logURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("activity.log")
     }
 
     /// Last successful check of any kind (foreground, background, Night Watch, Shortcut).
