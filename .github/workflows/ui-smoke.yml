@@ -95,15 +95,12 @@ jobs:
           xcrun simctl launch "$UDID" com.apple.Preferences
           sleep 200
           xcrun simctl spawn "$UDID" launchctl list | grep -q aurorawatch || { echo "::error::App was suspended/killed in the background"; exit 1; }
-          DATA=$(xcrun simctl get_app_container "$UDID" com.brownie5596.aurorawatch data)
-          plutil -extract activityLog json -o - "$DATA/Library/Preferences/com.brownie5596.aurorawatch.plist" | python3 -c "
-          import json,sys
-          log=json.load(sys.stdin)
-          print('\n'.join(log[-12:]))
-          runs=[l for l in log if 'night watch:' in l]
-          print(f'{len(runs)} Night Watch checks')
-          sys.exit(0 if len(runs) >= 2 else 1)
-          "
+          # Read the app's activity log through cfprefsd (the plist on disk can lag behind).
+          xcrun simctl spawn "$UDID" defaults read com.brownie5596.aurorawatch activityLog > log.txt || true
+          tail -15 log.txt
+          RUNS=$(grep -c "night watch:" log.txt || true)
+          echo "$RUNS Night Watch checks while in the background"
+          [ "$RUNS" -ge 2 ] || { echo "::error::Night Watch did not keep checking in the background"; exit 1; }
 
       - name: Crash logs
         if: failure()

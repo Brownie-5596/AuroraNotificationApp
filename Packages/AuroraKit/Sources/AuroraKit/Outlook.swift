@@ -75,11 +75,7 @@ public enum Outlook {
         let plasmaFresh = SolarWind.isFresh(snapshot.latestPlasma?.time, now: now)
 
         // Kp
-        let kpNow: Double? = {
-            if let k = snapshot.latestEstimatedKp, now.timeIntervalSince(k.time) < 30 * 60 { return k.kp }
-            if let k = snapshot.latestKp, now.timeIntervalSince(k.time) < 6 * 3600 { return k.kp }
-            return nil
-        }()
+        let kpNow = currentKp(snapshot, now: now)
         if let kp = kpNow {
             let part = clamp((kp - (thresholds.overhead - 2.5)) / 2.5) * 40
             score += part
@@ -195,6 +191,18 @@ public enum Outlook {
     }
 
     static func clamp(_ x: Double) -> Double { min(max(x, 0), 1) }
+
+    /// Best current Kp. NOAA's 1-minute estimate restarts from 0 at the top of every 3-hour block
+    /// (00, 03, … UTC) and takes 20+ minutes to climb back, so use the highest estimate of the last
+    /// 45 minutes; fall back to the latest 3-hour value.
+    public static func currentKp(_ snapshot: SpaceWeatherSnapshot, now: Date) -> Double? {
+        let recent = snapshot.kp1m.filter { now.timeIntervalSince($0.time) < 45 * 60 && $0.time <= now.addingTimeInterval(60) }
+        if let best = recent.map(\.kp).max(), let latest = recent.last, now.timeIntervalSince(latest.time) < 30 * 60 {
+            return best
+        }
+        if let k = snapshot.latestKp, now.timeIntervalSince(k.time) < 6 * 3600 { return k.kp }
+        return nil
+    }
 
     public static func cloudCover(at date: Date, clouds: [CloudPoint]) -> Double? {
         clouds.min(by: { abs($0.time.timeIntervalSince(date)) < abs($1.time.timeIntervalSince(date)) })

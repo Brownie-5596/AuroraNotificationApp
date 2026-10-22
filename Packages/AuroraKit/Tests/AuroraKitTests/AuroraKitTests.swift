@@ -419,4 +419,15 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(merged, merged.sorted { $0.time < $1.time })
         XCTAssertEqual(merged.last?.bz, -9)
     }
+
+    func testKpSurvivesThreeHourReset() {
+        // 17:30–17:59 UTC at Kp 4.33, then NOAA's estimate restarts from 0 at 18:00.
+        let block = SWDate.utc(year: 2026, month: 10, day: 22, hour: 18)
+        var snap = SpaceWeatherSnapshot(fetchedAt: block)
+        snap.kp1m = (0..<30).map { EstimatedKp(time: block.addingTimeInterval(Double($0 - 30) * 60), kp: 4.33) }
+            + (0..<10).map { EstimatedKp(time: block.addingTimeInterval(Double($0) * 60), kp: $0 < 6 ? 0 : 0.33) }
+        let now = block.addingTimeInterval(9 * 60)
+        XCTAssertEqual(Outlook.currentKp(snap, now: now) ?? 0, 4.33, accuracy: 0.01)
+        XCTAssertEqual(Outlook.nowcast(snapshot: snap, location: .grandForks, now: now).estimatedKp ?? 0, 4.33, accuracy: 0.01)
+    }
 }
