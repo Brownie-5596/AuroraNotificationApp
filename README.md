@@ -50,7 +50,8 @@ Every push builds an unsigned `.ipa` on GitHub's macOS runners.
 2. Install it with **Sideloadly**, **AltStore** or **SideStore** — they sign it with your Apple ID.
 3. **AltStore / SideStore auto-updates:** add this source:
    `https://github.com/Brownie-5596/AuroraNotificationApp/releases/download/latest/altstore-source.json`
-4. Open the app, allow notifications, and make sure **Settings → General → Background App Refresh** is on for Aurora Watch. Open it now and then — iOS refreshes apps you use more often.
+4. Open the app, allow notifications, and make sure **Settings → General → Background App Refresh** is on for Aurora Watch.
+5. For real-time heads-ups while the app is closed, turn on **Night Watch** (see [below](#alerts-while-the-app-is-closed)).
 
 The app uses no special entitlements (no push, app groups or extensions), so it works with a free Apple ID. Free-account apps expire after 7 days unless AltStore/SideStore refreshes them.
 
@@ -62,18 +63,31 @@ xcodegen generate
 open AuroraWatch.xcodeproj
 ```
 
-## Reliable real-time alerts (optional, free)
+## Alerts while the app is closed
 
-iOS decides when a sideloaded app gets to run in the background — anywhere from every 15 minutes to every few hours — and sideloaded apps can't receive Apple push notifications. Forecast alerts work fine like that; the 30-minute heads-ups can arrive late.
+iOS decides when a sideloaded app may run in the background (at best every few hours, never after you swipe it away, not in Low Power Mode), and sideloaded apps can't receive Apple push notifications. The app works around this in layers:
 
-For dependable real-time pushes, this repo includes a **cloud watcher**: the same alert engine (`Packages/AuroraKit`) runs on GitHub Actions every ~10 minutes and pushes to the free **[ntfy](https://ntfy.sh)** app.
+| What | How it reaches you when the app is closed |
+| --- | --- |
+| Tonight / tomorrow night / CME arrival alerts | **Booked with iOS in advance** each time the app runs, so they go off on time even if the app never runs again |
+| Real-time heads-ups (Bz, shocks, activity) | **Night Watch** (Settings → When the app is closed): keeps the app running in the background with silent audio and checks every 3 min after dark, 20 min by day. Uses extra battery; stops if you swipe the app away or restart — open the app to resume |
+| Extra checks | iOS background refresh (quick ~100 KB check), an overnight "processing" task, and a **Check for Aurora** Shortcuts action you can run from Time-of-Day or "charger connected" automations |
+
+Settings shows when the last check ran, whether Night Watch is running, and which reminders are booked (more in Settings → Diagnostics).
+
+### Optional: push via GitHub Actions + ntfy
+
+The same alert engine (`Packages/AuroraKit`) can run on GitHub Actions and push to the free **[ntfy](https://ntfy.sh)** app — no phone battery needed.
 
 1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
 2. In this repo: **Settings → Secrets and variables → Actions → New repository secret** → name `NTFY_TOPIC`, value = your topic.
 3. Optionally edit [`Watcher/settings.json`](Watcher/settings.json) to change the thresholds (same options as in the app; `minActivity`: 1 = Possible, 2 = Likely, 3 = Strong).
-4. The workflow must be on the repo's **default branch** (scheduled workflows only run there — right now that's this branch). Test it with **Actions → Aurora watcher (ntfy push) → Run workflow** (tick "dry run" to just see what it would send).
+4. Test it with **Actions → Aurora watcher (ntfy push) → Run workflow** (tick "dry run" to just see what it would send).
+5. **Important:** GitHub heavily throttles scheduled workflows on small repos — this repo's every-10-minute schedule has actually been running every 3–5 hours. For on-time checks, trigger it from outside: create a fine-grained GitHub token with *Actions: read and write* for this repo, then add a free job on [cron-job.org](https://cron-job.org) that every 10 minutes sends
+   `POST https://api.github.com/repos/Brownie-5596/AuroraNotificationApp/actions/workflows/aurora-watcher.yml/dispatches`
+   with headers `Authorization: Bearer <token>` and `Accept: application/vnd.github+json`, and body `{"ref":"claude/aurora-notification-ios-app-e2ucwa"}`.
 
-Notes: GitHub can delay scheduled runs by several minutes at busy times, and pauses schedules after 60 days without any repo activity (re-enable on the Actions tab). The repo is public, so Actions minutes are free.
+GitHub pauses schedules after 60 days without repo activity (runs triggered from cron-job.org are unaffected). The repo is public, so Actions minutes are free.
 
 ## How it works
 
