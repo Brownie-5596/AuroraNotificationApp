@@ -13,6 +13,10 @@ on:
         description: "Print alerts without sending them"
         type: boolean
         default: false
+      send_test:
+        description: "Send a test notification to your ntfy topic"
+        type: boolean
+        default: false
 
 concurrency:
   group: aurora-watcher
@@ -78,7 +82,8 @@ jobs:
           Packages/AuroraKit/.build/release/aurora-watch \
             --state watcher-state/state.json \
             --settings Watcher/settings.json \
-            ${{ inputs.dry_run == true && '--dry-run' || '' }}
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            ${{ inputs.send_test == true && '--test' || '' }}
 
       - name: Save alert state
         if: always() && inputs.dry_run != true

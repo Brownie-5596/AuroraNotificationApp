@@ -53,7 +53,7 @@ jobs:
             -derivedDataPath build \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            MARKETING_VERSION=1.0.${{ github.run_number }} CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build > build.log 2>&1
           status=$?
           set -e
@@ -85,7 +85,8 @@ jobs:
           size = os.path.getsize("AuroraWatch.ipa")
           url = f"https://github.com/{repo}/releases/download/latest/AuroraWatch.ipa"
           date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-          version = {"version": "1.0.0", "buildVersion": run, "date": date, "downloadURL": url, "size": size,
+          # The version must change every build or AltStore/SideStore won't offer the update.
+          version = {"version": f"1.0.{run}", "buildVersion": run, "date": date, "downloadURL": url, "size": size,
                      "minOSVersion": "16.0", "localizedDescription": f"Build {run} ({sha[:7]})"}
           app = {
               "name": "Aurora Watch",
@@ -98,7 +99,7 @@ jobs:
               "category": "utilities",
               "versions": [version],
               # legacy fields for older AltStore / SideStore versions
-              "version": "1.0.0", "versionDate": date, "downloadURL": url, "size": size,
+              "version": f"1.0.{run}", "versionDate": date, "downloadURL": url, "size": size,
               "appPermissions": {"entitlements": [], "privacy": {}},
           }
           source = {"name": "Aurora Watch", "identifier": "com.brownie5596.aurorawatch.source",

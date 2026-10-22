@@ -28,6 +28,9 @@ struct SettingsView: View {
                     NavigationLink("Push alerts via ntfy (advanced)") { PushSetupView() }
                     NavigationLink("Diagnostics") { DiagnosticsView() }
                 }
+                Section {
+                    LabeledContent("Version", value: appVersion)
+                }
             }
             .scrollContentBackground(.hidden)
             .navigationTitle("Settings")
@@ -111,6 +114,13 @@ struct SettingsView: View {
             Also keep Background App Refresh on (iOS Settings → General) and Low Power Mode off.
             """)
         }
+    }
+
+    var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (build \(build))"
     }
 
     func ago(_ date: Date?) -> String {

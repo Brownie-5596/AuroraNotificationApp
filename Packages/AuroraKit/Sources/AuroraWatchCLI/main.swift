@@ -6,7 +6,7 @@ import FoundationNetworking
 
 // aurora-watch: runs the same alert engine as the iOS app and pushes alerts through ntfy.
 //
-//   aurora-watch [--state state.json] [--settings settings.json] [--dry-run] [--quick]
+//   aurora-watch [--state state.json] [--settings settings.json] [--dry-run] [--quick] [--test]
 //
 // Environment:
 //   NTFY_TOPIC   topic to publish to (required unless --dry-run)
@@ -98,7 +98,15 @@ do {
         print("Night +\(night.daysAhead): max Kp \(KpFormat.label(night.maxKp)) [\(night.source.rawValue)] \(night.visibility.short)")
     }
 
-    let alerts = AlertEngine.evaluate(snapshot: snapshot, settings: settings, state: &stored.alerts, now: now)
+    var alerts = AlertEngine.evaluate(snapshot: snapshot, settings: settings, state: &stored.alerts, now: now)
+    if CommandLine.arguments.contains("--test") {
+        var body = "Push alerts from GitHub are working."
+        body += " Right now: \(nowcast.level.title), aurora chance \(nowcast.score)/100"
+        if let kp = nowcast.estimatedKp { body += ", Kp \(String(format: "%.1f", kp))" }
+        body += "."
+        alerts.insert(AuroraAlert(id: "test-\(Int(now.timeIntervalSince1970))", date: now, kind: .test,
+                                  title: "🌌 Aurora Watch test", body: body, priority: 3, tags: ["white_check_mark"]), at: 0)
+    }
     if alerts.isEmpty { print("No new alerts.") }
     for alert in alerts {
         print("→ \(alert.title)\n  \(alert.body.replacingOccurrences(of: "\n", with: "\n  "))")

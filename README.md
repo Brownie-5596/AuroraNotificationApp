@@ -82,7 +82,7 @@ The same alert engine (`Packages/AuroraKit`) can run on GitHub Actions and push 
 1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
 2. In this repo: **Settings → Secrets and variables → Actions → New repository secret** → name `NTFY_TOPIC`, value = your topic.
 3. Optionally edit [`Watcher/settings.json`](Watcher/settings.json) to change the thresholds (same options as in the app; `minActivity`: 1 = Possible, 2 = Likely, 3 = Strong).
-4. Test it with **Actions → Aurora watcher (ntfy push) → Run workflow** (tick "dry run" to just see what it would send).
+4. Test it with **Actions → Aurora watcher (ntfy push) → Run workflow** and tick **Send a test notification** (or "dry run" to just see what it would send).
 5. **Important:** GitHub heavily throttles scheduled workflows on small repos — this repo's every-10-minute schedule has actually been running every 3–5 hours. For on-time checks, trigger it from outside: create a fine-grained GitHub token with *Actions: read and write* for this repo, then add a free job on [cron-job.org](https://cron-job.org) that every 10 minutes sends
    `POST https://api.github.com/repos/Brownie-5596/AuroraNotificationApp/actions/workflows/aurora-watcher.yml/dispatches`
    with headers `Authorization: Bearer <token>` and `Accept: application/vnd.github+json`, and body `{"ref":"claude/aurora-notification-ios-app-e2ucwa"}`.

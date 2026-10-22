@@ -112,7 +112,7 @@ struct PushSetupView: View {
                     1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
                     2. In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**, name `NTFY_TOPIC`, value = your topic.
                     3. Optional: edit `Watcher/settings.json` in the repo to change thresholds (same options as this screen).
-                    4. Open **Actions → Aurora watcher → Run workflow** once to test.
+                    4. Open **Actions → Aurora watcher (ntfy push) → Run workflow**, tick **Send a test notification**, and run it — a test push should reach ntfy within ~2 minutes.
                     5. For on-time runs: create a fine-grained GitHub token with **Actions: read & write** for this repo, then make a free job at **cron-job.org** that every 10 minutes sends `POST https://api.github.com/repos/Brownie-5596/AuroraNotificationApp/actions/workflows/aurora-watcher.yml/dispatches` with header `Authorization: Bearer <token>` and body `{"ref":"claude/aurora-notification-ios-app-e2ucwa"}`.
                     """)).font(.subheadline)
                 }
