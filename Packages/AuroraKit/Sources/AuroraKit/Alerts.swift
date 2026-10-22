@@ -124,14 +124,47 @@ public struct AlertState: Codable {
     public var seenNOAA: Set<String> = []
     public var history: [AuroraAlert] = []
     public var initialized = false
+    /// Notifications handed to iOS to go off later (see `AlertEngine.plan`), by key.
+    public var planned: [String: PlannedAlert] = [:]
 
     public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sent = (try? c.decodeIfPresent([String: Record].self, forKey: .sent)) ?? [:]
+        seenNOAA = (try? c.decodeIfPresent(Set<String>.self, forKey: .seenNOAA)) ?? []
+        history = (try? c.decodeIfPresent([AuroraAlert].self, forKey: .history)) ?? []
+        initialized = (try? c.decodeIfPresent(Bool.self, forKey: .initialized)) ?? false
+        planned = (try? c.decodeIfPresent([String: PlannedAlert].self, forKey: .planned)) ?? [:]
+    }
+
+    /// Planned notifications whose time has passed have been shown by iOS — count them as sent.
+    mutating func absorbFiredPlans(now: Date) {
+        for (key, plan) in planned where plan.fireDate <= now {
+            sent[key] = Record(date: plan.fireDate, value: plan.value)
+            var alert = plan.alert
+            alert.date = plan.fireDate
+            history.append(alert)
+        }
+        planned = planned.filter { $0.value.fireDate > now }
+    }
 
     mutating func prune(now: Date) {
         sent = sent.filter { now.timeIntervalSince($0.value.date) < 10 * 86400 }
         if seenNOAA.count > 400 { seenNOAA = Set(seenNOAA.sorted().suffix(200)) }
         if history.count > 150 { history = Array(history.suffix(150)) }
     }
+}
+
+/// A notification to schedule with iOS for later delivery.
+public struct PlannedAlert: Codable, Hashable {
+    public var key: String
+    public var fireDate: Date
+    public var value: Double
+    public var alert: AuroraAlert
+
+    /// Identifier for the pending iOS notification.
+    public var notificationID: String { "plan-\(key)" }
 }
 
 public enum TimeText {
@@ -170,6 +203,7 @@ public enum AlertEngine {
         let loc = settings.location
         let tz = loc.timeZone
         var alerts: [AuroraAlert] = []
+        state.absorbFiredPlans(now: now)
         let firstRun = !state.initialized
         let nowcast = Outlook.nowcast(snapshot: snapshot, location: loc, now: now)
         let nights = Outlook.nights(snapshot: snapshot, location: loc, now: now)
@@ -196,31 +230,7 @@ public enum AlertEngine {
                 // Re-alert only if the forecast is upgraded by a full Kp step.
                 if let rec = state.sent[key], night.maxKp < rec.value + 1 { continue }
 
-                let kpText = "Kp \(KpFormat.label(night.maxKp))" + (KpFormat.gLabel(night.maxKp).map { " (\($0))" } ?? "")
-                let when: String
-                switch stage {
-                case .forecastTonight: when = "tonight"
-                case .forecastTomorrow: when = "tomorrow night"
-                default: when = TimeText.format(night.nightOf, tz, "EEEE") + " night"
-                }
-                var body = "\(kpText) forecast \(when)"
-                if let t = night.maxKpTime { body += ", peaking around \(TimeText.dayTime(t, tz))" }
-                body += ". \(night.visibility.description)."
-                if let dark = night.dark { body += " Dark \(TimeText.time(dark.start, tz))–\(TimeText.time(dark.end, tz))." }
-                body += cloudNote(night.cloudCover)
-                if night.source == .outlook27 { body += " (Early 27-day outlook — low confidence.)" }
-                if let cme = night.cmeArrivals.first { body += " CME expected \(TimeText.dayTime(cme.arrival, tz))." }
-
-                let title: String
-                switch stage {
-                case .forecastTonight: title = "🌌 Aurora possible tonight"
-                case .forecastTomorrow: title = "🌌 Aurora watch: tomorrow night"
-                default: title = "🔭 Aurora outlook: \(TimeText.format(night.nightOf, tz, "EEEE"))"
-                }
-                alerts.append(AuroraAlert(
-                    id: key + "-\(Int(night.maxKp * 3))", date: now, kind: stage, title: title, body: body,
-                    priority: stage == .forecastTonight ? 4 : 3, tags: ["milky_way"]
-                ))
+                alerts.append(forecastAlert(night, stage: stage, key: key, date: now, tz: tz))
                 state.sent[key] = .init(date: now, value: night.maxKp)
             }
         }
@@ -357,6 +367,84 @@ public enum AlertEngine {
         state.history.append(contentsOf: alerts)
         state.prune(now: now)
         return alerts
+    }
+
+    static func forecastAlert(_ night: NightOutlook, stage: AlertKind, key: String, date: Date, tz: TimeZone) -> AuroraAlert {
+        let kpText = "Kp \(KpFormat.label(night.maxKp))" + (KpFormat.gLabel(night.maxKp).map { " (\($0))" } ?? "")
+        let when: String
+        switch stage {
+        case .forecastTonight: when = "tonight"
+        case .forecastTomorrow: when = "tomorrow night"
+        default: when = TimeText.format(night.nightOf, tz, "EEEE") + " night"
+        }
+        var body = "\(kpText) forecast \(when)"
+        if let t = night.maxKpTime { body += ", peaking around \(TimeText.dayTime(t, tz))" }
+        body += ". \(night.visibility.description)."
+        if let dark = night.dark { body += " Dark \(TimeText.time(dark.start, tz))–\(TimeText.time(dark.end, tz))." }
+        if let cover = night.cloudCover { body += " Clouds ~\(Int(cover))%." }
+        if night.source == .outlook27 { body += " (Early 27-day outlook — low confidence.)" }
+        if let cme = night.cmeArrivals.first { body += " CME expected \(TimeText.dayTime(cme.arrival, tz))." }
+
+        let title: String
+        switch stage {
+        case .forecastTonight: title = "🌌 Aurora possible tonight"
+        case .forecastTomorrow: title = "🌌 Aurora watch: tomorrow night"
+        default: title = "🔭 Aurora outlook: \(TimeText.format(night.nightOf, tz, "EEEE"))"
+        }
+        return AuroraAlert(
+            id: key + "-\(Int(night.maxKp * 3))", date: date, kind: stage, title: title, body: body,
+            priority: stage == .forecastTonight ? 4 : 3, tags: ["milky_way"]
+        )
+    }
+
+    /// Notifications to hand to iOS now so they go off on time even if the app doesn't get to run
+    /// again: the "tonight" alert on the afternoon of a forecast night, the "tomorrow night" alert at
+    /// noon the day before, and the CME arrival-window alert. Replaces `state.planned`; call after
+    /// `evaluate` and replace any previously scheduled notifications with the result.
+    public static func plan(snapshot: SpaceWeatherSnapshot, settings: AlertSettings, state: inout AlertState, now: Date = Date()) -> [PlannedAlert] {
+        let loc = settings.location
+        let tz = loc.timeZone
+        let cal = loc.calendar
+        var plans: [PlannedAlert] = []
+
+        func add(_ key: String, _ fireDate: Date, _ value: Double, _ alert: AuroraAlert) {
+            guard fireDate > now.addingTimeInterval(60) else { return }
+            if let rec = state.sent[key], value < rec.value + 1 { return }
+            plans.append(PlannedAlert(key: key, fireDate: fireDate, value: value, alert: alert))
+        }
+
+        if settings.forecastEnabled {
+            let nights = Outlook.nights(snapshot: snapshot, location: loc, now: now)
+            for night in nights where night.daysAhead >= 1 && night.source == .kpForecast && night.maxKp >= settings.forecastKp {
+                let asOf = " (Forecast as of \(TimeText.dayTime(now, tz)) — open the app for the latest.)"
+                if settings.tonightEnabled, let dark = night.dark {
+                    let key = "\(AlertKind.forecastTonight.rawValue)-\(dayKey(night.nightOf, tz))"
+                    var alert = forecastAlert(night, stage: .forecastTonight, key: key, date: now, tz: tz)
+                    alert.body += asOf
+                    add(key, dark.start.addingTimeInterval(-3 * 3600), night.maxKp, alert)
+                }
+                if settings.tomorrowEnabled, night.daysAhead >= 2,
+                   let dayBefore = cal.date(byAdding: .day, value: -1, to: night.nightOf),
+                   let noon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: dayBefore) {
+                    let key = "\(AlertKind.forecastTomorrow.rawValue)-\(dayKey(night.nightOf, tz))"
+                    var alert = forecastAlert(night, stage: .forecastTomorrow, key: key, date: now, tz: tz)
+                    alert.body += asOf
+                    add(key, noon, night.maxKp, alert)
+                }
+            }
+        }
+
+        if settings.cmeEnabled {
+            for cme in snapshot.cmeArrivals {
+                let key = "cmesoon-\(cme.id)"
+                let body = "Predicted CME arrival in ~8 h (\(TimeText.dayTime(cme.arrival, tz)), ±7 h). Watch for a jump in solar wind speed and Bt — open the app to check."
+                let alert = AuroraAlert(id: key, date: now, kind: .cmeSoon, title: "☄️ CME arrival window opening", body: body, priority: 3, tags: ["hourglass"])
+                add(key, cme.arrival.addingTimeInterval(-8 * 3600), 1, alert)
+            }
+        }
+
+        state.planned = Dictionary(plans.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        return plans
     }
 
     static func dayKey(_ date: Date, _ tz: TimeZone) -> String {

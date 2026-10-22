@@ -55,8 +55,11 @@ targets:
         UIUserInterfaceStyle: Dark
         UIBackgroundModes:
           - fetch
+          - processing
+          - audio
         BGTaskSchedulerPermittedIdentifiers:
           - com.brownie5596.aurorawatch.refresh
+          - com.brownie5596.aurorawatch.processing
         ITSAppUsesNonExemptEncryption: false
 schemes:
   AuroraWatch:

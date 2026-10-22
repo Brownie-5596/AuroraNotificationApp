@@ -35,6 +35,9 @@ public struct PropagatedSample: Codable, Hashable {
     public var density: Double?
     public var bz: Double?
     public var bt: Double?
+    public var bx: Double?
+    public var by: Double?
+    public var temperature: Double?
 
     public var travelTime: TimeInterval { arrival.timeIntervalSince(time) }
 }

@@ -183,7 +183,10 @@ public enum FeedParser {
                 speed: JSONValue.double(row["speed"]),
                 density: JSONValue.double(row["density"]),
                 bz: JSONValue.double(row["bz"]),
-                bt: JSONValue.double(row["bt"])
+                bt: JSONValue.double(row["bt"]),
+                bx: JSONValue.double(row["bx"]),
+                by: JSONValue.double(row["by"]),
+                temperature: JSONValue.double(row["temperature"])
             )
         }.sorted { $0.time < $1.time }
     }

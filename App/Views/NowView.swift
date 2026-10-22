@@ -4,6 +4,9 @@ import SwiftUI
 struct NowView: View {
     @EnvironmentObject var model: AppModel
     @State private var range: ChartRange = .h6
+    @AppStorage("nightWatchEnabled") private var nightWatchEnabled = false
+    @AppStorage("nightWatchPromptDismissed") private var promptDismissed = false
+    @ObservedObject private var nightWatch = NightWatch.shared
 
     var body: some View {
         NavigationStack {
@@ -12,6 +15,7 @@ struct NowView: View {
                     VStack(spacing: 14) {
                         if let snapshot = model.snapshot, let nowcast = model.nowcast {
                             header(snapshot)
+                            if !nightWatchEnabled && !promptDismissed { nightWatchPrompt }
                             ChanceCard(nowcast: nowcast, location: model.location)
                             TilesGrid(snapshot: snapshot, nowcast: nowcast).id("tiles")
                             BzStreakCard(snapshot: snapshot, threshold: model.settings.bzThreshold, tz: model.location.timeZone)
@@ -54,8 +58,28 @@ struct NowView: View {
                 if let source = snapshot.magSource ?? snapshot.plasmaSource {
                     Text("L1 spacecraft: \(source)")
                 }
+                if nightWatch.isRunning {
+                    Label("Night Watch on", systemImage: "moon.stars.fill").foregroundStyle(Theme.aurora)
+                }
             }
             .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    var nightWatchPrompt: some View {
+        Card(title: "Get real-time alerts with the app closed", systemImage: "moon.stars.fill") {
+            Text("iOS rarely lets sideloaded apps check in the background, so \"heads up\" alerts can be hours late. Night Watch keeps the app running and checks every few minutes after dark. It uses extra battery.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Turn on Night Watch") {
+                    nightWatchEnabled = true
+                    nightWatch.start()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Not now") { promptDismissed = true }
+                    .buttonStyle(.bordered)
+            }
+            .font(.subheadline)
         }
     }
 

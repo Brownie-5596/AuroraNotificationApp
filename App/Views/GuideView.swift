@@ -78,8 +78,10 @@ struct GuideView: View {
                 • Activity comes in waves (substorms) that last 15–45 min — if it fades, wait.
                 • Best hours are usually 10 PM–2 AM local, but strong storms can go all night.
                 """)
-                section("About background alerts on iOS", """
-                iOS — not the app — decides when background refreshes run. Usually every 15 min to a few hours, more often if you open the app regularly; never if you force-quit it or Low Power Mode is on. Forecast alerts are reliable this way; the 30-minute heads-ups may arrive late. For dependable real-time pushes, set up the optional cloud watcher (Settings → Reliable push alerts).
+                section("About alerts while the app is closed", """
+                iOS — not the app — decides when sideloaded apps may run in the background: at best every few hours, never after you swipe the app away, and not in Low Power Mode.
+                • **Forecast alerts** (tonight, tomorrow night, CME arrival) are booked with iOS in advance, so they arrive even if the app stays closed.
+                • **Real-time heads-ups** need the app running. Turn on **Night Watch** (Settings) to keep it checking every few minutes after dark, or use a Shortcuts automation to trigger checks at set times.
                 """)
                 Text("Data: NOAA SWPC, NASA DONKI/CCMC, Open-Meteo. Not an official forecast.")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -102,7 +104,7 @@ struct PushSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Card(title: "Why", systemImage: "questionmark.circle") {
-                    Text("Sideloaded apps can't receive Apple push notifications, and iOS limits background refreshes. To get real-time alerts within ~10 minutes, the same alert engine can run for free on GitHub Actions and push to the **ntfy** app.")
+                    Text("An alternative to Night Watch that doesn't use your phone's battery: the same alert engine runs on GitHub Actions and pushes to the free **ntfy** app. Note: GitHub heavily delays scheduled runs on small repos (this repo's every-10-minute schedule has been running only every 3–5 hours), so for real-time alerts you also need an outside timer — step 5.")
                         .font(.subheadline)
                 }
                 Card(title: "Setup (5 minutes)", systemImage: "list.number") {
@@ -110,17 +112,47 @@ struct PushSetupView: View {
                     1. Install **ntfy** from the App Store and subscribe to a hard-to-guess topic, e.g. `aurora-gf-7k2p9x`.
                     2. In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**, name `NTFY_TOPIC`, value = your topic.
                     3. Optional: edit `Watcher/settings.json` in the repo to change thresholds (same options as this screen).
-                    4. Make sure the code is on the default branch — GitHub only runs scheduled workflows there. Then open **Actions → Aurora watcher → Run workflow** once to test.
+                    4. Open **Actions → Aurora watcher → Run workflow** once to test.
+                    5. For on-time runs: create a fine-grained GitHub token with **Actions: read & write** for this repo, then make a free job at **cron-job.org** that every 10 minutes sends `POST https://api.github.com/repos/Brownie-5596/AuroraNotificationApp/actions/workflows/aurora-watcher.yml/dispatches` with header `Authorization: Bearer <token>` and body `{"ref":"claude/aurora-notification-ios-app-e2ucwa"}`.
                     """)).font(.subheadline)
                 }
                 Card(title: "Notes", systemImage: "info.circle") {
-                    Text("The watcher runs every ~10 minutes (GitHub sometimes delays scheduled runs). GitHub pauses scheduled workflows after 60 days without repo activity — re-enable it on the Actions tab if that happens. You can keep this app's own alerts on too; the two don't share state, so you may occasionally get both.")
+                    Text("GitHub pauses scheduled workflows after 60 days without repo activity (runs started from cron-job.org keep going). You can keep this app's own alerts on too; the two don't share state, so you may occasionally get both.")
                         .font(.subheadline)
                 }
             }
             .padding()
         }
-        .navigationTitle("Reliable push alerts")
+        .navigationTitle("Push alerts via ntfy")
+        .screenBackground()
+    }
+}
+
+struct ShortcutsHelpView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Card(title: "Why", systemImage: "questionmark.circle") {
+                    Text("Shortcuts automations run when *you* say, not when iOS feels like it. The app adds a **Check for Aurora** action that runs quietly in the background and sends any alerts — a good backup to Night Watch, or a battery-friendly alternative.")
+                        .font(.subheadline)
+                }
+                Card(title: "Set up (iOS 17 or later)", systemImage: "list.number") {
+                    Text(LocalizedStringKey("""
+                    1. Open **Shortcuts → Automation → + → Time of Day**.
+                    2. Pick a time (e.g. 9:00 PM), **Daily**, and choose **Run Immediately** (turn off *Notify When Run*).
+                    3. Tap **New Blank Automation → Add Action**, search **Aurora Watch** and choose **Check for Aurora**.
+                    4. Repeat for more times through the night — e.g. every 30 or 60 minutes from 9 PM to 2 AM.
+                    Tip: a **Charger → Is Connected** automation runs a check whenever you plug in for the night.
+                    """)).font(.subheadline)
+                }
+                Card(title: "Try it", systemImage: "mic") {
+                    Text("You can also say \"Check for aurora with Aurora Watch\" to Siri.")
+                        .font(.subheadline)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Shortcuts")
         .screenBackground()
     }
 }

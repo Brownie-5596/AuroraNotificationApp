@@ -337,4 +337,86 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(settings.forecastKp, 4.67)
         XCTAssertEqual(settings.location, .grandForks)
     }
+
+    func forecastSnapshot(now: Date, targetBlockHour: Int, kp: Double) -> SpaceWeatherSnapshot {
+        var snap = SpaceWeatherSnapshot(fetchedAt: now)
+        snap.kpForecast = stride(from: 0, to: 120, by: 3).map { h in
+            KpPoint(time: SWDate.utc(year: 2026, month: 10, day: 19).addingTimeInterval(Double(h) * 3600),
+                    kp: h == targetBlockHour ? kp : 2, kind: .predicted)
+        }
+        return snap
+    }
+
+    func testPlanSchedulesTonightAndTomorrowReminders() throws {
+        var settings = AlertSettings()
+        settings.nowcastEnabled = false
+        settings.noaaEnabled = false
+        // Monday Oct 19, noon CDT. Kp 5 forecast for Wednesday night (Oct 21 evening = Oct 22 03 UTC).
+        let now = SWDate.utc(year: 2026, month: 10, day: 19, hour: 17)
+        let snap = forecastSnapshot(now: now, targetBlockHour: 75, kp: 5)
+        var state = AlertState()
+        let live = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: now)
+        XCTAssertEqual(live.map(\.kind), [.forecastEarly])
+
+        let plans = AlertEngine.plan(snapshot: snap, settings: settings, state: &state, now: now)
+        XCTAssertEqual(Set(plans.map(\.alert.kind)), [.forecastTomorrow, .forecastTonight])
+        let tz = settings.location.timeZone
+        let tomorrow = try XCTUnwrap(plans.first { $0.alert.kind == .forecastTomorrow })
+        XCTAssertEqual(TimeText.format(tomorrow.fireDate, tz, "EEE HH:mm"), "Tue 12:00")
+        let tonight = try XCTUnwrap(plans.first { $0.alert.kind == .forecastTonight })
+        XCTAssertEqual(TimeText.format(tonight.fireDate, tz, "EEE"), "Wed")
+        XCTAssertTrue(tonight.alert.body.contains("Forecast as of"))
+        XCTAssertEqual(state.planned.count, 2)
+
+        // Wednesday afternoon, after both reminders went off: the engine must not repeat them.
+        let wednesday = tonight.fireDate.addingTimeInterval(1800)
+        let later = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: wednesday)
+        XCTAssertTrue(later.isEmpty, "\(later.map(\.title))")
+        XCTAssertTrue(state.history.contains { $0.kind == .forecastTonight })
+        XCTAssertTrue(AlertEngine.plan(snapshot: snap, settings: settings, state: &state, now: wednesday).isEmpty)
+    }
+
+    func testPlanSkipsWhenForecastDropsAndReplacesOldPlans() {
+        var settings = AlertSettings()
+        settings.nowcastEnabled = false
+        settings.noaaEnabled = false
+        let now = SWDate.utc(year: 2026, month: 10, day: 19, hour: 17)
+        var state = AlertState()
+        _ = AlertEngine.plan(snapshot: forecastSnapshot(now: now, targetBlockHour: 75, kp: 5), settings: settings, state: &state, now: now)
+        XCTAssertFalse(state.planned.isEmpty)
+        // Forecast downgraded an hour later: nothing should stay scheduled.
+        let plans = AlertEngine.plan(snapshot: forecastSnapshot(now: now, targetBlockHour: 75, kp: 3), settings: settings, state: &state, now: now.addingTimeInterval(3600))
+        XCTAssertTrue(plans.isEmpty)
+        XCTAssertTrue(state.planned.isEmpty)
+    }
+
+    func testPlanCMEReminder() {
+        var settings = AlertSettings()
+        settings.forecastEnabled = false
+        var snap = SpaceWeatherSnapshot(fetchedAt: t0)
+        snap.cmeArrivals = [CMEArrival(id: "cme1", arrival: t0.addingTimeInterval(30 * 3600), isGlancingBlow: false)]
+        var state = AlertState()
+        let plans = AlertEngine.plan(snapshot: snap, settings: settings, state: &state, now: t0)
+        XCTAssertEqual(plans.map(\.key), ["cmesoon-cme1"])
+        XCTAssertEqual(plans[0].fireDate, t0.addingTimeInterval(22 * 3600))
+    }
+
+    func testOldAlertStateStillDecodes() throws {
+        let old = #"{"sent": {"bz": {"date": 1, "value": -8}}, "seenNOAA": ["a"], "history": [], "initialized": true}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let state = try decoder.decode(AlertState.self, from: Data(old.utf8))
+        XCTAssertEqual(state.sent["bz"]?.value, -8)
+        XCTAssertTrue(state.initialized)
+        XCTAssertTrue(state.planned.isEmpty)
+    }
+
+    func testMergeLiveSolarWind() {
+        let old = mag(Array(repeating: -3.0, count: 120), end: t0.addingTimeInterval(-30 * 60))
+        let new = mag(Array(repeating: -9.0, count: 60), end: t0)
+        let merged = SpaceWeatherClient.merge(old, new, now: t0)
+        XCTAssertEqual(merged.count, 90 + 60)
+        XCTAssertEqual(merged, merged.sorted { $0.time < $1.time })
+        XCTAssertEqual(merged.last?.bz, -9)
+    }
 }

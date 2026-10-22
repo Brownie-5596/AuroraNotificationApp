@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var checkResult: String?
     @State private var nasaKey = Store.shared.nasaAPIKey
+    @AppStorage("nightWatchEnabled") private var nightWatchEnabled = false
+    @ObservedObject private var nightWatch = NightWatch.shared
 
     private let kpChoices: [Double] = [3.0, 3.33, 3.67, 4.0, 4.33, 4.67, 5.0, 5.33, 5.67, 6.0, 6.33, 6.67, 7.0, 7.67, 8.67]
 
@@ -14,6 +16,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 notificationsSection
+                backgroundSection
                 forecastSection
                 realtimeSection
                 otherSection
@@ -21,7 +24,8 @@ struct SettingsView: View {
                 locationSection
                 Section("Help") {
                     NavigationLink("How aurora forecasting works") { GuideView() }
-                    NavigationLink("Reliable push alerts (optional)") { PushSetupView() }
+                    NavigationLink("Scheduled checks with Shortcuts") { ShortcutsHelpView() }
+                    NavigationLink("Push alerts via ntfy (advanced)") { PushSetupView() }
                     NavigationLink("Diagnostics") { DiagnosticsView() }
                 }
             }
@@ -70,9 +74,49 @@ struct SettingsView: View {
             if let checkResult { Text(checkResult).font(.caption).foregroundStyle(.secondary) }
         } header: {
             Text("Notifications")
-        } footer: {
-            Text("Make sure Background App Refresh is on for this app (Settings → General → Background App Refresh). iOS decides how often it runs — usually every 15 min to a few hours.")
         }
+    }
+
+    var backgroundSection: some View {
+        Section {
+            Toggle(isOn: $nightWatchEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Night Watch")
+                    Text("Keep checking every \(Int(NightWatch.nightInterval / 60)) min after dark")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: nightWatchEnabled) { on in
+                if on { nightWatch.start() } else { nightWatch.stop() }
+            }
+            if nightWatchEnabled {
+                LabeledContent("Night Watch", value: nightWatch.isRunning ? "Running" : "Stopped — open the app to restart")
+                    .foregroundStyle(nightWatch.isRunning ? Theme.aurora : .orange)
+                if let error = nightWatch.lastError {
+                    Text(error).font(.caption).foregroundStyle(.orange)
+                }
+            }
+            LabeledContent("Last check", value: ago(Store.shared.lastCheck))
+            LabeledContent("Last iOS background refresh", value: ago(Store.shared.lastBackgroundRun))
+            let reminders = Store.shared.alertState.planned.count
+            if reminders > 0 {
+                LabeledContent("Reminders booked with iOS", value: "\(reminders)")
+            }
+        } header: {
+            Text("When the app is closed")
+        } footer: {
+            Text("""
+            Forecast alerts (tonight / tomorrow / CME) are booked with iOS ahead of time, so they arrive even if the app is closed.
+            Real-time heads-ups need the app to be running. iOS only wakes sideloaded apps every few hours at best, so turn on **Night Watch**: the app keeps running in the background (it plays silence, mixed with your music) and checks every \(Int(NightWatch.nightInterval / 60)) min after dark, \(Int(NightWatch.dayInterval / 60)) min by day. It uses extra battery — charging overnight helps. Swiping the app away or restarting the phone stops it; just open the app again.
+            Also keep Background App Refresh on (iOS Settings → General) and Low Power Mode off.
+            """)
+        }
+    }
+
+    func ago(_ date: Date?) -> String {
+        guard let date else { return "Never" }
+        let seconds = Date().timeIntervalSince(date)
+        return seconds < 60 ? "Just now" : "\(TimeText.duration(seconds)) ago"
     }
 
     var forecastSection: some View {
@@ -226,6 +270,18 @@ struct DiagnosticsView: View {
             Section("Background refresh") {
                 LabeledContent("Status", value: refreshStatus)
                 LabeledContent("Last background run", value: Store.shared.lastBackgroundRun?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                LabeledContent("Night Watch", value: NightWatch.shared.isRunning ? "Running" : "Off")
+            }
+            let planned = Store.shared.alertState.planned.values.sorted { $0.fireDate < $1.fireDate }
+            if !planned.isEmpty {
+                Section("Reminders booked with iOS") {
+                    ForEach(planned, id: \.key) { plan in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(plan.alert.title).font(.subheadline)
+                            Text(plan.fireDate.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             if let errors = model.snapshot?.errors, !errors.isEmpty {
                 Section("Feeds with problems") {

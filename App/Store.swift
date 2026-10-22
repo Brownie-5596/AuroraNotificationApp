@@ -50,6 +50,17 @@ final class Store {
         defaults.set(Array(entries.suffix(60)), forKey: "activityLog")
     }
 
+    /// Last successful check of any kind (foreground, background, Night Watch, Shortcut).
+    var lastCheck: Date? {
+        get { defaults.object(forKey: "lastCheck") as? Date }
+        set { defaults.set(newValue, forKey: "lastCheck") }
+    }
+
+    var nightWatchEnabled: Bool {
+        get { defaults.bool(forKey: "nightWatchEnabled") }
+        set { defaults.set(newValue, forKey: "nightWatchEnabled") }
+    }
+
     var lastBackgroundRun: Date? {
         get { defaults.object(forKey: "lastBackgroundRun") as? Date }
         set { defaults.set(newValue, forKey: "lastBackgroundRun") }

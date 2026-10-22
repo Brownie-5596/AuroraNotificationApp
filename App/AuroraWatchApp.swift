@@ -20,6 +20,7 @@ struct AuroraWatchApp: App {
             switch phase {
             case .active:
                 model.startAutoRefresh()
+                NightWatch.shared.startIfEnabled()
             case .background:
                 model.stopAutoRefresh()
                 BackgroundRefresh.schedule()
@@ -35,6 +36,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         BackgroundRefresh.register()
         BackgroundRefresh.schedule()
+        // If iOS relaunched us in the background (e.g. for a refresh), try to resume Night Watch.
+        Task { @MainActor in NightWatch.shared.startIfEnabled() }
         return true
     }
 
@@ -49,34 +52,46 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 }
 
 /// iOS decides when background refreshes actually run (typically every 15 min – few hours,
-/// more often for apps you open regularly). Each run fetches data and evaluates the alert rules.
+/// more often for apps you open regularly, never after the app is swiped away). Each run does a
+/// small, fast check and sends any alerts. A second, "processing" task gives iOS another chance
+/// to wake the app — it tends to run those overnight while the phone is charging.
 enum BackgroundRefresh {
     static let identifier = "com.brownie5596.aurorawatch.refresh"
+    static let processingIdentifier = "com.brownie5596.aurorawatch.processing"
 
     static func register() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
-            guard let task = task as? BGAppRefreshTask else { return }
-            handle(task)
+            handle(task, reason: "background")
+        }
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: processingIdentifier, using: nil) { task in
+            handle(task, reason: "processing")
         }
     }
 
     static func schedule() {
-        let request = BGAppRefreshTaskRequest(identifier: identifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
-            Store.shared.log("Could not schedule background refresh: \(error.localizedDescription)")
+        let refresh = BGAppRefreshTaskRequest(identifier: identifier)
+        refresh.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        let processing = BGProcessingTaskRequest(identifier: processingIdentifier)
+        processing.requiresNetworkConnectivity = true
+        processing.requiresExternalPower = false
+        processing.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        for request in [refresh, processing] as [BGTaskRequest] {
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                Store.shared.log("Could not schedule \(request.identifier): \(error.localizedDescription)")
+            }
         }
     }
 
-    static func handle(_ task: BGAppRefreshTask) {
+    static func handle(_ task: BGTask, reason: String) {
         schedule()
         let work = Task {
-            let result = await AlertRunner.run(reason: "background")
-            task.setTaskCompleted(success: result)
+            let result = await AlertRunner.run(reason: reason, quick: true)
+            if !Task.isCancelled { task.setTaskCompleted(success: result) }
         }
         task.expirationHandler = {
+            Store.shared.log("\(reason): iOS ended the check early")
             work.cancel()
             task.setTaskCompleted(success: false)
         }

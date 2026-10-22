@@ -6,7 +6,7 @@ import FoundationNetworking
 
 // aurora-watch: runs the same alert engine as the iOS app and pushes alerts through ntfy.
 //
-//   aurora-watch [--state state.json] [--settings settings.json] [--dry-run]
+//   aurora-watch [--state state.json] [--settings settings.json] [--dry-run] [--quick]
 //
 // Environment:
 //   NTFY_TOPIC   topic to publish to (required unless --dry-run)
@@ -81,9 +81,13 @@ func publish(_ alert: AuroraAlert) async throws {
 var exitCode: Int32 = 0
 
 do {
-    let client = SpaceWeatherClient(nasaAPIKey: env["NASA_API_KEY"])
+    // --quick uses the same small, fast refresh the iOS app does in the background.
+    let quick = CommandLine.arguments.contains("--quick")
+    let client = SpaceWeatherClient(nasaAPIKey: env["NASA_API_KEY"], quick: quick)
     let now = Date()
-    let snapshot = await client.fetchSnapshot(location: settings.location, previous: stored.snapshot, now: now)
+    let snapshot = quick
+        ? await client.fetchAlertSnapshot(location: settings.location, previous: stored.snapshot, now: now)
+        : await client.fetchSnapshot(location: settings.location, previous: stored.snapshot, now: now)
     for (feed, error) in snapshot.errors.sorted(by: { $0.key < $1.key }) {
         print("feed \(feed): \(error)")
     }
