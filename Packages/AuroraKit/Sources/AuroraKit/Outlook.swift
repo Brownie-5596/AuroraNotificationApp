@@ -237,6 +237,8 @@ public struct NightOutlook: Codable, Hashable, Identifiable {
     public var cloudCover: Double?
     public var moonIllumination: Double
     public var cmeArrivals: [CMEArrival]
+    /// Sunset/sunrise, twilights and moonrise/moonset for this night.
+    public var sky: NightSky?
     public var id: Date { nightOf }
 
     public var gScale: Int { KpFormat.gScale(maxKp) }
@@ -247,7 +249,6 @@ extension Outlook {
     public static func nights(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, count: Int = 4, darkness: Double = -12, now: Date) -> [NightOutlook] {
         let cal = location.calendar
         let firstNight = Sky.currentNightOf(now: now, location: location)
-        let thresholds = location.visibility
         var result: [NightOutlook] = []
 
         for offset in 0..<count {
@@ -284,23 +285,26 @@ extension Outlook {
             } else {
                 continue
             }
-            result.append(night(nightOf, offset, dark, maxKp, maxTime, source, thresholds, snapshot))
+            result.append(night(nightOf, offset, dark, maxKp, maxTime, source, location, snapshot))
         }
         return result
     }
 
     private static func night(
         _ nightOf: Date, _ offset: Int, _ dark: DateInterval, _ maxKp: Double, _ maxTime: Date?,
-        _ source: NightOutlook.Source, _ thresholds: VisibilityThresholds, _ snapshot: SpaceWeatherSnapshot
+        _ source: NightOutlook.Source, _ location: ObserverLocation, _ snapshot: SpaceWeatherSnapshot
     ) -> NightOutlook {
+        let thresholds = location.visibility
         let windowForCME = DateInterval(start: dark.start.addingTimeInterval(-12 * 3600), end: dark.end)
+        let sky = Sky.nightSky(nightOf: nightOf, location: location)
         return NightOutlook(
             nightOf: nightOf, daysAhead: offset, dark: dark,
             maxKp: maxKp, maxKpTime: maxTime, source: source,
             visibility: thresholds.visibility(kp: maxKp),
             cloudCover: meanCloudCover(in: dark, clouds: snapshot.clouds),
             moonIllumination: Sky.moonIllumination(at: dark.start.addingTimeInterval(dark.duration / 2)),
-            cmeArrivals: snapshot.cmeArrivals.filter { windowForCME.contains($0.arrival) }
+            cmeArrivals: snapshot.cmeArrivals.filter { windowForCME.contains($0.arrival) },
+            sky: sky
         )
     }
 }

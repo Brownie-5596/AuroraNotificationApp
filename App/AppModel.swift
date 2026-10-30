@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var snapshot: SpaceWeatherSnapshot?
     @Published private(set) var nowcast: Nowcast?
     @Published private(set) var nights: [NightOutlook] = []
+    @Published private(set) var tonightSky: NightSky?
     @Published private(set) var history: [AuroraAlert] = []
     @Published private(set) var isRefreshing = false
     @Published var settings: AlertSettings {
@@ -41,10 +42,16 @@ final class AppModel: ObservableObject {
 
     var location: ObserverLocation { settings.location }
 
-    func refresh() async {
+    private var lastFullRefresh: Date?
+
+    /// Pull-to-refresh and opening the app do a full refresh (all feeds, for the charts). The
+    /// once-a-minute timer only does the small, fast update unless the last full one is 10 min old.
+    func refresh(full: Bool = true) async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        await AlertRunner.run(reason: "app")
+        let doFull = full || lastFullRefresh.map { Date().timeIntervalSince($0) > 10 * 60 } ?? true
+        await AlertRunner.run(reason: "app", quick: !doFull)
+        if doFull { lastFullRefresh = Date() }
         isRefreshing = false
     }
 
@@ -59,6 +66,7 @@ final class AppModel: ObservableObject {
         let now = Date()
         nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, now: now)
         nights = Outlook.nights(snapshot: snapshot, location: settings.location, now: now)
+        tonightSky = Sky.nightSky(nightOf: Sky.currentNightOf(now: now, location: settings.location), location: settings.location)
     }
 
     func clearHistory() {
@@ -77,10 +85,10 @@ final class AppModel: ObservableObject {
     }
 
     func startAutoRefresh() {
-        Task { await refresh() }
+        Task { await refresh(full: false) }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+            Task { @MainActor in await self?.refresh(full: false) }
         }
     }
 

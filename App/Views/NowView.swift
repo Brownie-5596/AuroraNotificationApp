@@ -17,6 +17,9 @@ struct NowView: View {
                             header(snapshot)
                             if !nightWatchEnabled && !promptDismissed { nightWatchPrompt }
                             ChanceCard(nowcast: nowcast, location: model.location)
+                            if let sky = model.tonightSky {
+                                TonightSkyCard(sky: sky, location: model.location).id("sky")
+                            }
                             TilesGrid(snapshot: snapshot, nowcast: nowcast, location: model.location).id("tiles")
                             BzStreakCard(snapshot: snapshot, threshold: model.settings.bzThreshold, tz: model.location.timeZone)
                             ArrivalCard(snapshot: snapshot, nowcast: nowcast, tz: model.location.timeZone)
@@ -221,7 +224,7 @@ struct ChanceCard: View {
                     HStack(spacing: 10) {
                         Label(nowcast.isDark ? "Dark" : "Sun \(nowcast.sunAltitude.f(0))°",
                               systemImage: nowcast.isDark ? "moon.stars.fill" : "sun.horizon.fill")
-                        Label("\(Int(nowcast.moonIllumination * 100))%", systemImage: "moonphase.waxing.gibbous")
+                        Label("\(Int((nowcast.moonIllumination * 100).rounded()))%", systemImage: Sky.moonPhaseSymbol(at: Date()))
                         if let c = nowcast.cloudCover { Label("\(Int(c))%", systemImage: "cloud.fill") }
                     }
                     .font(.caption).foregroundStyle(.secondary)

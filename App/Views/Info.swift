@@ -284,6 +284,24 @@ extension ChartInfo {
         source: "NASA CCMC DONKI (WSA-ENLIL simulations)."
     )
 
+    static let twilight = ChartInfo(
+        id: "twilight", title: "Twilight, Sun & Moon", icon: "sunset.fill",
+        summary: "When it gets dark enough to see aurora, and when the Moon is up to brighten the sky.",
+        what: "Sunset and sunrise are when the top of the Sun crosses the horizon. After sunset, twilight is split by how far the Sun is below the horizon: **civil** (0–6°), **nautical** (6–12°) and **astronomical** (12–18°). Below 18° the sky is fully dark.",
+        read: """
+        Very bright aurora can show up in late civil twilight, but most aurora is much easier to see once nautical twilight ends — that's when the app counts it as "dark" — and best after astronomical twilight.
+        The Moon matters too: a bright Moon (more than about half lit) washes out faint aurora. Strong displays still show fine, and moonlight lights up the landscape for photos. On the timeline bar the sky gets darker left to right through the night, the yellow strip shows when the Moon is up (brighter = fuller Moon), and the white line is now.
+        """,
+        levels: [
+            .init(range: "Daylight", meaning: "Sun up", tone: .quiet),
+            .init(range: "Civil", meaning: "Brightest stars and planets; only very strong aurora", tone: .quiet),
+            .init(range: "Nautical", meaning: "Horizon still visible; moderate aurora shows", tone: .some),
+            .init(range: "Astronomical", meaning: "Nearly dark; faint aurora shows", tone: .good),
+            .init(range: "Night", meaning: "Fully dark — best", tone: .great),
+        ],
+        source: "Calculated on your device from your location (accurate to about a minute)."
+    )
+
     struct Group: Identifiable {
         var title: String
         var items: [ChartInfo]
@@ -292,7 +310,7 @@ extension ChartInfo {
 
     static func all(for location: ObserverLocation) -> [Group] {
         [
-            Group(title: "Right now", items: [.score, kp(location), .kp1m, .ovation, .hemiPower]),
+            Group(title: "Right now", items: [.score, kp(location), .kp1m, .ovation, .hemiPower, .twilight]),
             Group(title: "Solar wind", items: [.bz, .bt, .bzStreak, .ey, .speed, .density, .pressure, .temperature, .bxby, .travelTime]),
             Group(title: "Earth & Sun", items: [.goes, .xray, .scales]),
             Group(title: "Forecasts", items: [.geomagProbs, .outlook27, .cme]),
@@ -505,7 +523,12 @@ struct ChartDetailView<Content: View>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .screenBackground()
-            .onAppear { if let initialRange { range = initialRange } }
+            .onAppear {
+                if let initialRange { range = initialRange }
+                // `-chartRange 7D` launch argument, used by the UI smoke test.
+                if initialRange != nil, let raw = UserDefaults.standard.string(forKey: "chartRange"),
+                   let r = ChartRange(rawValue: raw) { range = r }
+            }
         }
         .preferredColorScheme(.dark)
         .tint(Theme.aurora)

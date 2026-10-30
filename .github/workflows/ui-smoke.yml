@@ -72,7 +72,9 @@ jobs:
             xcrun simctl terminate "$UDID" com.brownie5596.aurorawatch || true
           }
           shot now now "" 40
+          shot now-sky now sky 15
           shot now-tiles now tiles 15
+          shot now-bz-7d now "" 30 -openChart bz -chartRange 7D
           shot now-wind now wind 15
           shot now-indices now indices 15
           shot now-bz-detail now "" 30 -openChart bz

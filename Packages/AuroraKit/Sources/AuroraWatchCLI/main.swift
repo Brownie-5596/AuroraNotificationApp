@@ -87,7 +87,7 @@ do {
     let now = Date()
     let snapshot = quick
         ? await client.fetchAlertSnapshot(location: settings.location, previous: stored.snapshot, now: now)
-        : await client.fetchSnapshot(location: settings.location, previous: stored.snapshot, now: now)
+        : await client.fetchSnapshot(location: settings.location, previous: stored.snapshot, now: now, includeHistory: false)
     for (feed, error) in snapshot.errors.sorted(by: { $0.key < $1.key }) {
         print("feed \(feed): \(error)")
     }

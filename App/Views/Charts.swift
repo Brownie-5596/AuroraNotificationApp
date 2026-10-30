@@ -10,7 +10,7 @@ struct TimePoint: Identifiable {
 }
 
 enum ChartRange: String, CaseIterable, Identifiable {
-    case m30 = "30M", h1 = "1H", h3 = "3H", h6 = "6H", h12 = "12H", h24 = "24H"
+    case m30 = "30M", h1 = "1H", h3 = "3H", h6 = "6H", h12 = "12H", h24 = "24H", d2 = "2D", d4 = "4D", d7 = "7D"
     var id: String { rawValue }
 
     var seconds: TimeInterval {
@@ -21,7 +21,17 @@ enum ChartRange: String, CaseIterable, Identifiable {
         case .h6: return 6 * 3600
         case .h12: return 12 * 3600
         case .h24: return 24 * 3600
+        case .d2: return 2 * 86400
+        case .d4: return 4 * 86400
+        case .d7: return 7 * 86400
         }
+    }
+
+    var isMultiDay: Bool { seconds > 86400 }
+
+    /// Time shown in the readout while dragging: includes the day on multi-day ranges.
+    func readout(_ date: Date, _ tz: TimeZone) -> String {
+        isMultiDay ? TimeText.dayTime(date, tz) : TimeText.time(date, tz)
     }
 }
 
@@ -60,7 +70,7 @@ struct SeriesChart: View {
                 if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let picked {
-                    ScrubReadout(time: TimeText.time(picked.time, tz), values: "\(picked.value.f(digits)) \(unit)")
+                    ScrubReadout(time: range.readout(picked.time, tz), values: "\(picked.value.f(digits)) \(unit)")
                 } else if let last = data.last {
                     Text("\(last.value.f(digits)) \(unit)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
@@ -122,7 +132,7 @@ struct BzChart: View {
                 Spacer()
                 if let pickedBz {
                     ScrubReadout(
-                        time: TimeText.time(pickedBz.time, tz),
+                        time: range.readout(pickedBz.time, tz),
                         values: "Bz \(String(format: "%+.1f", pickedBz.value))" + (pickedBt.map { " · Bt \($0.value.f())" } ?? "") + " nT"
                     )
                 } else {
@@ -212,7 +222,7 @@ struct MultiSeriesChart: View {
                 Spacer()
                 if let first = picked.first {
                     ScrubReadout(
-                        time: TimeText.time(first.time, tz),
+                        time: range.readout(first.time, tz),
                         values: picked.map { "\($0.series) \($0.value.f())" }.joined(separator: " · ")
                     )
                 }
@@ -266,7 +276,7 @@ struct XrayChart: View {
                 if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let picked {
-                    ScrubReadout(time: TimeText.time(picked.time, tz), values: FlareClass.label(flux: pow(10, picked.value)))
+                    ScrubReadout(time: range.readout(picked.time, tz), values: FlareClass.label(flux: pow(10, picked.value)))
                 } else if let last = samples.last {
                     Text(FlareClass.label(flux: last.flux)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
@@ -361,25 +371,27 @@ struct KpBarChart: View {
 }
 
 func timeAxis(range: ChartRange, tz: TimeZone) -> some AxisContent {
-    let stride: Calendar.Component = .minute
-    let count: Int
-    switch range {
-    case .m30: count = 10
-    case .h1: count = 15
-    case .h3: count = 30
-    case .h6: count = 60
-    case .h12: count = 180
-    case .h24: count = 240
-    }
-    return AxisMarks(values: .stride(by: stride, count: count)) { value in
+    let (unit, count, format): (Calendar.Component, Int, String) = {
+        switch range {
+        case .m30: return (.minute, 10, "h:mm")
+        case .h1: return (.minute, 15, "h:mm")
+        case .h3: return (.minute, 30, "h:mm")
+        case .h6: return (.hour, 1, "h:mm")
+        case .h12: return (.hour, 3, "h a")
+        case .h24: return (.hour, 4, "h a")
+        case .d2: return (.hour, 12, "EEE h a")
+        case .d4, .d7: return (.day, 1, "EEE")
+        }
+    }()
+    return AxisMarks(values: .stride(by: unit, count: count)) { value in
         AxisGridLine()
         AxisValueLabel {
-            if let date = value.as(Date.self) { Text(TimeText.format(date, tz, "h:mm")) }
+            if let date = value.as(Date.self) { Text(TimeText.format(date, tz, format)) }
         }
     }
 }
 
-// MARK: - Press-and-hold readout
+// MARK: - Chart readout
 
 /// Drag (or tap) on a chart to pick a time; the selection stays until you pick another point.
 /// Only used in the full-screen chart view — on the main page charts don't take touches, so

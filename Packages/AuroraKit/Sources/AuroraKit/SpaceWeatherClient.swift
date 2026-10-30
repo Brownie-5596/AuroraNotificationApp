@@ -10,7 +10,7 @@ public final class SpaceWeatherClient {
 
     public enum Feed: String, CaseIterable {
         case mag, wind, propagated, kp, kpForecast, kp1m, hemiPower, goesPrimary, goesSecondary, xray, flare
-        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds
+        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds, wind7
     }
 
     let session: URLSession
@@ -50,7 +50,8 @@ public final class SpaceWeatherClient {
 
     /// Fetches a full snapshot. Slow-changing feeds (CMEs, clouds, 27-day outlook) are reused from
     /// `previous` when it is recent enough, to be kind to the APIs and the battery.
-    public func fetchSnapshot(location: ObserverLocation, previous: SpaceWeatherSnapshot? = nil, now: Date = Date()) async -> SpaceWeatherSnapshot {
+    /// - Parameter includeHistory: also keep up the 7-day history used by the multi-day charts.
+    public func fetchSnapshot(location: ObserverLocation, previous: SpaceWeatherSnapshot? = nil, now: Date = Date(), includeHistory: Bool = true) async -> SpaceWeatherSnapshot {
         var snap = SpaceWeatherSnapshot(fetchedAt: now)
 
         async let mag = attempt { try FeedParser.rtswMag(try await self.data(self.swpc("/json/rtsw/rtsw_mag_1m.json"))) }
@@ -63,6 +64,26 @@ public final class SpaceWeatherClient {
         async let goes1 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/primary/magnetometers-1-day.json"))) }
         async let goes2 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/secondary/magnetometers-1-day.json"))) }
         async let xray = attempt { try FeedParser.xray(try await self.data(self.swpc("/json/goes/primary/xrays-1-day.json"))) }
+
+        // 7-day history for the 2D/4D/7D chart ranges — only every few hours; in between, the
+        // 1-day feeds are merged onto what we already have.
+        let needHistory = includeHistory && (previous?.historyFetchedAt.map { now.timeIntervalSince($0) > 6 * 3600 } ?? true)
+        async let wind7 = attempt { () async throws -> [PropagatedSample]? in
+            guard needHistory else { return nil }
+            return try FeedParser.propagated(try await self.data(self.swpc("/products/geospace/propagated-solar-wind.json")))
+        }
+        async let goes1week = attempt { () async throws -> [GoesMagSample]? in
+            guard needHistory else { return nil }
+            return try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/primary/magnetometers-7-day.json")))
+        }
+        async let goes2week = attempt { () async throws -> [GoesMagSample]? in
+            guard needHistory else { return nil }
+            return try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/secondary/magnetometers-7-day.json")))
+        }
+        async let xrayWeek = attempt { () async throws -> [XraySample]? in
+            guard needHistory else { return nil }
+            return try FeedParser.xray(try await self.data(self.swpc("/json/goes/primary/xrays-7-day.json")))
+        }
         async let flare = attempt { try FeedParser.latestFlare(try await self.data(self.swpc("/json/goes/primary/xray-flares-latest.json"))) }
         async let alerts = attempt { try FeedParser.alerts(try await self.data(self.swpc("/products/alerts.json"))) }
         async let scales = attempt { try FeedParser.scales(try await self.data(self.swpc("/products/noaa-scales.json"))) }
@@ -99,16 +120,34 @@ public final class SpaceWeatherClient {
             }
         }
 
-        if let m = take(await mag, .mag) { snap.mag = m.samples; snap.magSource = m.source }
-        if let w = take(await wind, .wind) { snap.plasma = w.samples; snap.plasmaSource = w.source }
+        let history = (take(await wind7, .wind7) ?? nil)
+        let goesWeek1 = take(await goes1week, .goesPrimary) ?? nil
+        let goesWeek2 = take(await goes2week, .goesSecondary) ?? nil
+        let xrayHistory = take(await xrayWeek, .xray) ?? nil
+        let gotHistory = history != nil
+        snap.historyFetchedAt = gotHistory ? now : previous?.historyFetchedAt
+
+        let magBase = history.map { $0.map { MagSample(time: $0.time, bt: $0.bt, bx: $0.bx, by: $0.by, bz: $0.bz) } } ?? previous?.mag ?? []
+        let plasmaBase = history.map { $0.map { PlasmaSample(time: $0.time, speed: $0.speed, density: $0.density, temperature: $0.temperature) } } ?? previous?.plasma ?? []
+        snap.mag = magBase
+        snap.plasma = plasmaBase
+        if let m = take(await mag, .mag) {
+            snap.mag = Self.merge(magBase, m.samples, now: now)
+            snap.magSource = m.source
+        }
+        if let w = take(await wind, .wind) {
+            snap.plasma = Self.merge(plasmaBase, w.samples, now: now)
+            snap.plasmaSource = w.source
+        }
         snap.propagated = take(await propagated, .propagated) ?? []
         snap.kpObserved = take(await kp, .kp) ?? previous?.kpObserved ?? []
         snap.kpForecast = take(await kpForecast, .kpForecast) ?? previous?.kpForecast ?? []
-        snap.kp1m = take(await kp1m, .kp1m) ?? []
-        snap.hemiPower = take(await hemi, .hemiPower) ?? []
-        snap.goesPrimary = take(await goes1, .goesPrimary) ?? []
-        snap.goesSecondary = take(await goes2, .goesSecondary) ?? []
-        snap.xray = take(await xray, .xray) ?? []
+        // These feeds only cover the last few hours/days, so keep accumulating them.
+        snap.kp1m = Self.merge(previous?.kp1m ?? [], take(await kp1m, .kp1m) ?? [], now: now, time: { $0.time })
+        snap.hemiPower = Self.merge(previous?.hemiPower ?? [], take(await hemi, .hemiPower) ?? [], now: now, time: { $0.observed })
+        snap.goesPrimary = Self.merge(goesWeek1 ?? previous?.goesPrimary ?? [], take(await goes1, .goesPrimary) ?? [], now: now, time: { $0.time })
+        snap.goesSecondary = Self.merge(goesWeek2 ?? previous?.goesSecondary ?? [], take(await goes2, .goesSecondary) ?? [], now: now, time: { $0.time })
+        snap.xray = Self.merge(xrayHistory ?? previous?.xray ?? [], take(await xray, .xray) ?? [], now: now, time: { $0.time })
         snap.latestFlare = take(await flare, .flare) ?? nil
         snap.alerts = take(await alerts, .alerts) ?? previous?.alerts ?? []
         snap.scales = take(await scales, .scales) ?? previous?.scales
@@ -202,8 +241,8 @@ public final class SpaceWeatherClient {
         }
         if let v = take(await kp, .kp) { snap.kpObserved = v }
         if let v = take(await kpForecast, .kpForecast) { snap.kpForecast = v }
-        if let v = take(await kp1m, .kp1m) { snap.kp1m = v }
-        if let v = take(await hemi, .hemiPower) { snap.hemiPower = v }
+        if let v = take(await kp1m, .kp1m) { snap.kp1m = Self.merge(snap.kp1m, v, now: now, time: { $0.time }) }
+        if let v = take(await hemi, .hemiPower) { snap.hemiPower = Self.merge(snap.hemiPower, v, now: now, time: { $0.observed }) }
         if let v = take(await flare, .flare) { snap.latestFlare = v }
         if let v = take(await alerts, .alerts) { snap.alerts = v }
         if let v = take(await scales, .scales) { snap.scales = v }
@@ -219,11 +258,20 @@ public final class SpaceWeatherClient {
         return snap
     }
 
-    /// Appends `new` samples to `old`, replacing any overlap, and keeps the last 24 hours.
+    /// Appends `new` samples to `old`, replacing any overlap, and keeps the last 7 days. Samples
+    /// older than a day are thinned to one every 5 minutes, which is plenty for the multi-day
+    /// charts and keeps the saved snapshot small.
     static func merge<T>(_ old: [T], _ new: [T], now: Date, time: (T) -> Date) -> [T] {
-        guard let firstNew = new.first.map(time) else { return old }
-        let cutoff = now.addingTimeInterval(-24 * 3600)
-        return old.filter { time($0) < firstNew && time($0) >= cutoff } + new
+        let cutoff = now.addingTimeInterval(-7 * 86400)
+        let thinBefore = now.addingTimeInterval(-86400)
+        let firstNew = new.first.map(time) ?? .distantFuture
+        var result = old.filter { item in
+            let t = time(item)
+            guard t >= cutoff && t < firstNew else { return false }
+            return t >= thinBefore || Int(t.timeIntervalSince1970 / 60) % 5 == 0
+        }
+        result.append(contentsOf: new.filter { time($0) >= cutoff })
+        return result
     }
 
     static func merge(_ old: [MagSample], _ new: [MagSample], now: Date) -> [MagSample] {

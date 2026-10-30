@@ -83,9 +83,15 @@ struct ForecastView: View {
                         if let dark = night.dark { Label("\(lt.time(dark.start))–\(lt.time(dark.end))", systemImage: "moon.fill") }
                         if let t = night.maxKpTime { Label("peak \(lt.time(t))", systemImage: "arrow.up") }
                         if let c = night.cloudCover { Label("\(Int(c))%", systemImage: "cloud") }
-                        Label("\(Int(night.moonIllumination * 100))%", systemImage: "moonphase.full.moon")
                     }
                     .font(.caption).foregroundStyle(.secondary)
+                    if let sky = night.sky {
+                        HStack(spacing: 12) {
+                            if let sunset = sky.sunset { Label("Sunset \(lt.time(sunset))", systemImage: "sunset") }
+                            Label("\(Int((sky.moonIllumination * 100).rounded()))%" + moonEvents(sky, lt), systemImage: sky.moonSymbol)
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
                     if night.source == .outlook27 {
                         Text("From the 27-day outlook (daily max) — low confidence this far out.")
                             .font(.caption2).foregroundStyle(.yellow.opacity(0.8))
@@ -99,6 +105,12 @@ struct ForecastView: View {
                 if night.id != model.nights.last?.id { Divider().overlay(Color.white.opacity(0.1)) }
             }
         }
+    }
+
+    /// " · rises 9:51 PM · sets 1:46 PM", in time order.
+    func moonEvents(_ sky: NightSky, _ lt: LocalTime) -> String {
+        let events = (sky.moonrises.map { ($0, "rises") } + sky.moonsets.map { ($0, "sets") }).sorted { $0.0 < $1.0 }
+        return events.map { " · \($0.1) \(lt.time($0.0))" }.joined()
     }
 
     func title(_ night: NightOutlook) -> String {

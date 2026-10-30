@@ -153,9 +153,52 @@ final class ScienceTests: XCTestCase {
     }
 
     func testMoon() {
-        // Full moon 2026-10-26 ~04:12 UTC; new moon 2026-10-10 ~16:50 UTC.
+        // Full moon 2026-10-26 04:12 UTC; new moon 2026-10-10 15:50 UTC (PyEphem).
         XCTAssertGreaterThan(Sky.moonIllumination(at: SWDate.utc(year: 2026, month: 10, day: 26, hour: 4)), 0.95)
         XCTAssertLessThan(Sky.moonIllumination(at: SWDate.utc(year: 2026, month: 10, day: 10, hour: 17)), 0.05)
+    }
+
+    /// Reference times from PyEphem for Grand Forks.
+    func testSunAndMoonEvents() throws {
+        let gf = ObserverLocation.grandForks
+        func utc(_ d: Int, _ h: Int, _ m: Int, month: Int = 10) -> Date { SWDate.utc(year: 2026, month: month, day: d, hour: h, minute: m) }
+        func near(_ a: Date?, _ b: Date, _ minutes: Double, _ label: String) {
+            guard let a else { return XCTFail("\(label) missing") }
+            XCTAssertLessThan(abs(a.timeIntervalSince(b)) / 60, minutes, "\(label): \(a) vs \(b)")
+        }
+        let oct30 = gf.calendar.date(from: DateComponents(year: 2026, month: 10, day: 30))!
+        let night = Sky.nightSky(nightOf: oct30, location: gf)
+        near(night.sunset, utc(30, 23, 14), 3, "sunset")
+        near(night.civilDusk, utc(30, 23, 45), 3, "civil dusk")
+        near(night.nauticalDusk, utc(31, 0, 21), 3, "nautical dusk")
+        near(night.astronomicalDusk, utc(31, 0, 57), 3, "astronomical dusk")
+        near(night.astronomicalDawn, utc(31, 11, 27), 3, "astronomical dawn")
+        near(night.nauticalDawn, utc(31, 12, 3), 3, "nautical dawn")
+        near(night.civilDawn, utc(31, 12, 39), 3, "civil dawn")
+        near(night.sunrise, utc(31, 13, 10), 3, "sunrise")
+        near(night.moonrise, utc(31, 2, 47), 6, "moonrise")
+        near(night.moonset, utc(30, 18, 52), 6, "moonset")
+        XCTAssertEqual(night.moonPhase, "Waning Gibbous")
+        XCTAssertGreaterThan(night.moonUpMinutesInDark, 0)
+        XCTAssertLessThan(night.moonUpMinutesInDark, night.darkMinutes)
+
+        let nov5 = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 5))!
+        let later = Sky.nightSky(nightOf: nov5, location: gf)
+        near(later.moonset, utc(5, 21, 17, month: 11), 6, "Nov 5 moonset")
+        near(later.moonrise, utc(6, 10, 33, month: 11), 6, "Nov 6 moonrise")
+
+        let nov20 = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 20))!
+        let third = Sky.nightSky(nightOf: nov20, location: gf)
+        near(third.moonrise, utc(20, 20, 25, month: 11), 6, "Nov 20 moonrise")
+        near(third.moonset, utc(21, 10, 3, month: 11), 6, "Nov 21 moonset")
+    }
+
+    func testMoonPhaseAccuracy() {
+        // PyEphem: 79.1% at 2026-10-30 04:00 UTC; full 2026-10-26 04:12; new 2026-11-09 07:02.
+        XCTAssertEqual(Sky.moonIllumination(at: SWDate.utc(year: 2026, month: 10, day: 30, hour: 4)), 0.791, accuracy: 0.02)
+        XCTAssertGreaterThan(Sky.moonIllumination(at: SWDate.utc(year: 2026, month: 10, day: 26, hour: 4)), 0.99)
+        XCTAssertLessThan(Sky.moonIllumination(at: SWDate.utc(year: 2026, month: 11, day: 9, hour: 7)), 0.01)
+        XCTAssertEqual(Sky.moonPhaseName(at: SWDate.utc(year: 2026, month: 11, day: 9, hour: 7)), "New Moon")
     }
 
     func testDragBasedTransit() throws {
@@ -418,6 +461,19 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(merged.count, 90 + 60)
         XCTAssertEqual(merged, merged.sorted { $0.time < $1.time })
         XCTAssertEqual(merged.last?.bz, -9)
+    }
+
+    func testMergeKeepsSevenDaysAndThinsOldData() {
+        // 8 days of 1-minute data, then a fresh hour.
+        let old = mag(Array(repeating: -1.0, count: 8 * 1440), end: t0.addingTimeInterval(-3600))
+        let new = mag(Array(repeating: -9.0, count: 60), end: t0)
+        let merged = SpaceWeatherClient.merge(old, new, now: t0)
+        XCTAssertGreaterThanOrEqual(merged.first!.time, t0.addingTimeInterval(-7 * 86400))
+        let lastDay = merged.filter { $0.time >= t0.addingTimeInterval(-86400) }
+        let older = merged.filter { $0.time < t0.addingTimeInterval(-86400) }
+        XCTAssertEqual(lastDay.count, 1440 + 1, accuracy: 2)
+        XCTAssertEqual(Double(older.count), 6 * 1440 / 5, accuracy: 3)
+        XCTAssertEqual(merged, merged.sorted { $0.time < $1.time })
     }
 
     func testKpSurvivesThreeHourReset() {

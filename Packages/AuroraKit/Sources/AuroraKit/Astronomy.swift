@@ -39,18 +39,8 @@ public enum Sky {
 
     /// Sun altitude in degrees above the horizon.
     public static func sunAltitude(at date: Date, latitude: Double, longitude: Double) -> Double {
-        let d = daysSinceJ2000(date)
-        let g = (357.529 + 0.98560028 * d) * rad
-        let q = 280.459 + 0.98564736 * d
-        let lambda = (q + 1.915 * sin(g) + 0.020 * sin(2 * g)) * rad
-        let epsilon = (23.439 - 0.00000036 * d) * rad
-        let ra = atan2(cos(epsilon) * sin(lambda), cos(lambda))
-        let dec = asin(sin(epsilon) * sin(lambda))
-        let gmstHours = 18.697374558 + 24.06570982441908 * d
-        let lst = (gmstHours * 15 + longitude) * rad
-        let ha = lst - ra
-        let lat = latitude * rad
-        return asin(sin(lat) * sin(dec) + cos(lat) * cos(dec) * cos(ha)) / rad
+        let sun = sunPosition(date)
+        return altitude(ra: sun.ra, dec: sun.dec, date: date, latitude: latitude, longitude: longitude)
     }
 
     public static func sunAltitude(at date: Date, for location: ObserverLocation) -> Double {
@@ -59,32 +49,42 @@ public enum Sky {
 
     /// Fraction of the Moon's disc that is lit (0 = new, 1 = full).
     public static func moonIllumination(at date: Date) -> Double {
-        let age = moonAge(at: date)
-        return (1 - cos(2 * Double.pi * age / synodicMonth)) / 2
+        (1 - cos(moonElongation(date) * rad)) / 2
     }
 
     static let synodicMonth = 29.530588853
 
     /// Days since new moon.
     public static func moonAge(at date: Date) -> Double {
-        // Reference new moon: 2000-01-06 18:14 UTC.
-        let reference = 947182440.0
-        let days = (date.timeIntervalSince1970 - reference) / 86400
-        let age = days.truncatingRemainder(dividingBy: synodicMonth)
-        return age < 0 ? age + synodicMonth : age
+        moonElongation(date) / 360 * synodicMonth
     }
 
     public static func moonPhaseName(at date: Date) -> String {
-        let age = moonAge(at: date)
-        switch age / synodicMonth {
-        case ..<0.033, 0.967...: return "New Moon"
-        case ..<0.216: return "Waxing Crescent"
-        case ..<0.283: return "First Quarter"
-        case ..<0.466: return "Waxing Gibbous"
-        case ..<0.533: return "Full Moon"
-        case ..<0.716: return "Waning Gibbous"
-        case ..<0.783: return "Last Quarter"
+        let fraction = moonElongation(date) / 360
+        switch fraction {
+        case ..<0.02, 0.98...: return "New Moon"
+        case ..<0.23: return "Waxing Crescent"
+        case ..<0.27: return "First Quarter"
+        case ..<0.48: return "Waxing Gibbous"
+        case ..<0.52: return "Full Moon"
+        case ..<0.73: return "Waning Gibbous"
+        case ..<0.77: return "Last Quarter"
         default: return "Waning Crescent"
+        }
+    }
+
+    /// SF Symbol for the Moon's current phase.
+    public static func moonPhaseSymbol(at date: Date) -> String {
+        let fraction = moonElongation(date) / 360
+        switch fraction {
+        case ..<0.02, 0.98...: return "moonphase.new.moon"
+        case ..<0.23: return "moonphase.waxing.crescent"
+        case ..<0.27: return "moonphase.first.quarter"
+        case ..<0.48: return "moonphase.waxing.gibbous"
+        case ..<0.52: return "moonphase.full.moon"
+        case ..<0.73: return "moonphase.waning.gibbous"
+        case ..<0.77: return "moonphase.last.quarter"
+        default: return "moonphase.waning.crescent"
         }
     }
 

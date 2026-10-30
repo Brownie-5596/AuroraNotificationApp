@@ -264,6 +264,8 @@ public struct SpaceWeatherSnapshot: Codable {
     public var clouds: [CloudPoint] = []
     public var cloudsFetchedAt: Date?
     public var outlookFetchedAt: Date?
+    /// When the 7-day history feeds were last downloaded.
+    public var historyFetchedAt: Date?
     /// Feed name -> error message for feeds that failed this refresh.
     public var errors: [String: String] = [:]
 
