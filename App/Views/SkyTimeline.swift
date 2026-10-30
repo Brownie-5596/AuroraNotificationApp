@@ -30,47 +30,39 @@ struct SkyTimeline: View {
         let tz = location.timeZone
 
         VStack(spacing: 4) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                let sliceWidth = w * step / span
-                ZStack(alignment: .topLeading) {
+            Canvas { ctx, size in
+                let w = size.width
+                let sliceWidth = w * CGFloat(step / span)
+                for (i, slice) in slices.enumerated() {
+                    let x = w * CGFloat(Double(i) * step / span)
                     // Sky darkness
-                    ForEach(Array(slices.enumerated()), id: \.offset) { i, slice in
-                        Rectangle()
-                            .fill(Self.color(slice.twilight))
-                            .frame(width: sliceWidth + 0.5, height: 22)
-                            .offset(x: CGFloat(i) * sliceWidth)
-                    }
+                    ctx.fill(Path(CGRect(x: x, y: 0, width: sliceWidth + 0.5, height: 22)),
+                             with: .color(Self.color(slice.twilight)))
                     // Moon up
-                    ForEach(Array(slices.enumerated()), id: \.offset) { i, slice in
-                        if slice.moonUp {
-                            Rectangle()
-                                .fill(Color.yellow.opacity(0.35 + 0.55 * illumination))
-                                .frame(width: sliceWidth + 0.5, height: 5)
-                                .offset(x: CGFloat(i) * sliceWidth, y: 25)
-                        }
-                    }
-                    // Now
-                    if now > start && now < start.addingTimeInterval(span) {
-                        Rectangle().fill(.white)
-                            .frame(width: 2, height: 32)
-                            .offset(x: w * now.timeIntervalSince(start) / span - 1, y: -1)
+                    if slice.moonUp {
+                        ctx.fill(Path(CGRect(x: x, y: 25, width: sliceWidth + 0.5, height: 5)),
+                                 with: .color(Color.yellow.opacity(0.35 + 0.55 * illumination)))
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                // Now
+                if now > start && now < start.addingTimeInterval(span) {
+                    let x = w * CGFloat(now.timeIntervalSince(start) / span)
+                    ctx.fill(Path(CGRect(x: x - 1, y: 0, width: 2, height: 30)), with: .color(.white))
+                }
             }
             .frame(height: 30)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             GeometryReader { geo in
                 ForEach(hours, id: \.self) { h in
                     Text(TimeText.format(h, tz, "h a"))
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                         .fixedSize()
-                        .position(x: geo.size.width * h.timeIntervalSince(start) / span, y: 6)
+                        // Line up with the bar, but keep the end labels on screen.
+                        .position(x: min(max(geo.size.width * h.timeIntervalSince(start) / span, 14), geo.size.width - 14), y: 6)
                 }
             }
             .frame(height: 12)
-            .padding(.horizontal, 8)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Sky darkness timeline for tonight")
