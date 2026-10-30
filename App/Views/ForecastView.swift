@@ -233,7 +233,7 @@ struct OutlookChart: View {
                 ScrubReadout(time: TimeText.format(picked.date, utc, "EEE MMM d"),
                              values: "Kp \(picked.kp) · Ap \(picked.ap) · F10.7 \(picked.radioFlux)")
             } else if interactive {
-                Text("Drag across the bars for details").font(.caption).foregroundStyle(.secondary)
+                Text(" ").font(.caption) // keeps the chart from jumping when a reading appears
             }
             Chart {
                 ForEach(days, id: \.date) { d in

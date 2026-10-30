@@ -318,7 +318,7 @@ struct KpBarChart: View {
                     values: "Kp \(KpFormat.label(picked.kp))" + (KpFormat.gLabel(picked.kp).map { " (\($0))" } ?? "") + " · \(picked.kind.rawValue)"
                 )
             } else if interactive {
-                Text("Drag across the bars for details").font(.caption).foregroundStyle(.secondary)
+                Text(" ").font(.caption) // keeps the chart from jumping when a reading appears
             }
             chart(now: now, picked: picked)
         }
