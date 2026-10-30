@@ -201,13 +201,20 @@ struct OutlookCard: View {
     var days: [OutlookDay]
     var thresholds: VisibilityThresholds
     var tz: TimeZone
+    @State private var selected: Date?
 
     var body: some View {
+        let utc = TimeZone(identifier: "UTC")!
+        let picked = selected.flatMap { date in days.first { $0.date <= date && date < $0.date.addingTimeInterval(86400) } }
         Card(title: "27-day outlook (largest daily Kp)", systemImage: "calendar") {
+            if let picked {
+                ScrubReadout(time: TimeText.format(picked.date, utc, "EEE MMM d"),
+                             values: "Kp \(picked.kp) · Ap \(picked.ap) · F10.7 \(picked.radioFlux)")
+            }
             Chart {
                 ForEach(days, id: \.date) { d in
                     BarMark(x: .value("Day", d.date, unit: .day), y: .value("Kp", d.kp))
-                        .foregroundStyle(Theme.kpColor(Double(d.kp)))
+                        .foregroundStyle(Theme.kpColor(Double(d.kp)).opacity(picked.map { $0.date == d.date ? 1 : 0.35 } ?? 1))
                 }
                 RuleMark(y: .value("Horizon", thresholds.horizon))
                     .foregroundStyle(Theme.aurora.opacity(0.6))
@@ -220,6 +227,7 @@ struct OutlookCard: View {
                     AxisValueLabel { if let d = value.as(Date.self) { Text(TimeText.format(d, TimeZone(identifier: "UTC")!, "MMM d")) } }
                 }
             }
+            .chartScrub($selected)
             .frame(height: 150)
             Text("The Sun rotates every ~27 days, so active coronal holes tend to come back around. Good for spotting likely-active periods weeks ahead.")
                 .font(.caption2).foregroundStyle(.secondary)

@@ -45,16 +45,21 @@ struct SeriesChart: View {
     var rules: [(Double, String)] = []
     var height: CGFloat = 140
     var tz: TimeZone
+    @State private var selected: Date?
 
     var body: some View {
         let cutoff = Date().addingTimeInterval(-range.seconds)
         let data = downsample(points.filter { $0.time >= cutoff })
+        let picked = selected.flatMap { nearest(data, to: $0) }
+        let digits = unit == "K" ? 0 : (unit == "GW" || unit == "km/s" ? 0 : 1)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title).font(.subheadline.weight(.semibold))
                 Spacer()
-                if let last = data.last {
-                    Text("\(last.value.f(unit == "K" ? 0 : 1)) \(unit)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if let picked {
+                    ScrubReadout(time: TimeText.time(picked.time, tz), values: "\(picked.value.f(digits)) \(unit)")
+                } else if let last = data.last {
+                    Text("\(last.value.f(digits)) \(unit)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
             if data.isEmpty {
@@ -74,8 +79,15 @@ struct SeriesChart: View {
                                 Text(rule.1).font(.system(size: 9)).foregroundStyle(.secondary)
                             }
                     }
+                    if let picked {
+                        scrubRule(picked.time)
+                        PointMark(x: .value("Time", picked.time), y: .value(title, picked.value))
+                            .foregroundStyle(color)
+                            .symbolSize(40)
+                    }
                 }
                 .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartScrub($selected)
                 .frame(height: height)
             }
         }
@@ -89,19 +101,29 @@ struct BzChart: View {
     var threshold: Double
     var tz: TimeZone
     var showComponents = false
+    @State private var selected: Date?
 
     var body: some View {
         let cutoff = Date().addingTimeInterval(-range.seconds)
         let bz = downsample(samples.filter { $0.time >= cutoff }.compactMap { s in s.bz.map { TimePoint(time: s.time, value: $0, series: "Bz") } })
         let bt = downsample(samples.filter { $0.time >= cutoff }.compactMap { s in s.bt.map { TimePoint(time: s.time, value: $0, series: "Bt") } })
+        let pickedBz = selected.flatMap { nearest(bz, to: $0) }
+        let pickedBt = selected.flatMap { nearest(bt, to: $0) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Bz / Bt (GSM)").font(.subheadline.weight(.semibold))
                 Spacer()
-                HStack(spacing: 8) {
-                    legend("Bz south", Theme.south)
-                    legend("Bz north", Theme.north)
-                    legend("Bt", .white.opacity(0.7))
+                if let pickedBz {
+                    ScrubReadout(
+                        time: TimeText.time(pickedBz.time, tz),
+                        values: "Bz \(String(format: "%+.1f", pickedBz.value))" + (pickedBt.map { " · Bt \($0.value.f())" } ?? "") + " nT"
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        legend("Bz south", Theme.south)
+                        legend("Bz north", Theme.north)
+                        legend("Bt", .white.opacity(0.7))
+                    }
                 }
             }
             if bz.isEmpty {
@@ -129,6 +151,12 @@ struct BzChart: View {
                             Text("alert \(threshold.f(0)) nT").font(.system(size: 9)).foregroundStyle(Theme.south)
                         }
                     RuleMark(y: .value("Zero", 0)).foregroundStyle(.white.opacity(0.3))
+                    if let pickedBz {
+                        scrubRule(pickedBz.time)
+                        PointMark(x: .value("Time", pickedBz.time), y: .value("Bz", pickedBz.value))
+                            .foregroundStyle(pickedBz.value < 0 ? Theme.south : Theme.north)
+                            .symbolSize(40)
+                    }
                 }
                 .chartForegroundStyleScale(
                     domain: ["Bz south", "Bz north", "Bt", "-Bt"],
@@ -136,6 +164,7 @@ struct BzChart: View {
                 )
                 .chartLegend(.hidden)
                 .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartScrub($selected)
                 .frame(height: 180)
             }
         }
@@ -157,24 +186,49 @@ struct MultiSeriesChart: View {
     var range: ChartRange
     var tz: TimeZone
     var height: CGFloat = 140
+    @State private var selected: Date?
 
     var body: some View {
         let cutoff = Date().addingTimeInterval(-range.seconds)
         let grouped = Dictionary(grouping: points.filter { $0.time >= cutoff }, by: \.series)
-        let data = grouped.values.flatMap { downsample($0.sorted { $0.time < $1.time }) }
+        let series = grouped.mapValues { downsample($0.sorted { $0.time < $1.time }) }
+        let data = series.values.flatMap { $0 }
+        let picked: [TimePoint] = selected.map { date in
+            colors.compactMap { pair in series[pair.key].flatMap { nearest($0, to: date) } }
+        } ?? []
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(title) (\(unit))").font(.subheadline.weight(.semibold))
+            HStack {
+                Text("\(title) (\(unit))").font(.subheadline.weight(.semibold))
+                Spacer()
+                if let first = picked.first {
+                    ScrubReadout(
+                        time: TimeText.time(first.time, tz),
+                        values: picked.map { "\($0.series) \($0.value.f())" }.joined(separator: " · ")
+                    )
+                }
+            }
             if data.isEmpty {
                 Text("No data").font(.caption).foregroundStyle(.secondary).frame(height: height)
             } else {
-                Chart(data) { p in
-                    LineMark(x: .value("Time", p.time), y: .value(title, p.value), series: .value("Series", p.series))
-                        .foregroundStyle(by: .value("Series", p.series))
-                        .lineStyle(StrokeStyle(lineWidth: 1.3))
+                Chart {
+                    ForEach(data) { p in
+                        LineMark(x: .value("Time", p.time), y: .value(title, p.value), series: .value("Series", p.series))
+                            .foregroundStyle(by: .value("Series", p.series))
+                            .lineStyle(StrokeStyle(lineWidth: 1.3))
+                    }
+                    if let first = picked.first {
+                        scrubRule(first.time)
+                        ForEach(picked) { p in
+                            PointMark(x: .value("Time", p.time), y: .value(title, p.value))
+                                .foregroundStyle(by: .value("Series", p.series))
+                                .symbolSize(40)
+                        }
+                    }
                 }
                 .chartForegroundStyleScale(domain: colors.map { $0.key }, range: colors.map { $0.value })
                 .chartLegend(position: .top, alignment: .trailing)
                 .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartScrub($selected)
                 .frame(height: height)
             }
         }
@@ -186,14 +240,18 @@ struct XrayChart: View {
     var samples: [XraySample]
     var tz: TimeZone
     private let classLevels: [(Double, String)] = [(-7, "B"), (-6, "C"), (-5, "M"), (-4, "X")]
+    @State private var selected: Date?
 
     var body: some View {
         let points = downsample(samples.map { TimePoint(time: $0.time, value: log10($0.flux), series: "x") })
+        let picked = selected.flatMap { nearest(points, to: $0) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("GOES X-ray (0.1–0.8 nm)").font(.subheadline.weight(.semibold))
                 Spacer()
-                if let last = samples.last {
+                if let picked {
+                    ScrubReadout(time: TimeText.time(picked.time, tz), values: FlareClass.label(flux: pow(10, picked.value)))
+                } else if let last = samples.last {
                     Text(FlareClass.label(flux: last.flux)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
@@ -209,10 +267,17 @@ struct XrayChart: View {
                             Text(level.1).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                         }
                 }
+                if let picked {
+                    scrubRule(picked.time)
+                    PointMark(x: .value("Time", picked.time), y: .value("log flux", picked.value))
+                        .foregroundStyle(.orange)
+                        .symbolSize(40)
+                }
             }
             .chartYScale(domain: -8.5 ... -3)
             .chartYAxis(.hidden)
             .chartXAxis { timeAxis(range: .h24, tz: tz) }
+            .chartScrub($selected)
             .frame(height: 130)
         }
     }
@@ -224,9 +289,25 @@ struct KpBarChart: View {
     var thresholds: VisibilityThresholds
     var tz: TimeZone
     var height: CGFloat = 170
+    @State private var selected: Date?
 
     var body: some View {
         let now = Date()
+        let picked = selected.flatMap { date in points.first { $0.time <= date && date < $0.end } }
+        VStack(alignment: .leading, spacing: 4) {
+            if let picked {
+                ScrubReadout(
+                    time: "\(TimeText.format(picked.time, tz, "EEE h a"))–\(TimeText.format(picked.end, tz, "h a"))",
+                    values: "Kp \(KpFormat.label(picked.kp))" + (KpFormat.gLabel(picked.kp).map { " (\($0))" } ?? "") + " · \(picked.kind.rawValue)"
+                )
+            } else {
+                Text("Press and hold a bar for details").font(.caption2).foregroundStyle(.secondary)
+            }
+            chart(now: now, picked: picked)
+        }
+    }
+
+    func chart(now: Date, picked: KpPoint?) -> some View {
         Chart {
             ForEach(points, id: \.time) { p in
                 RectangleMark(
@@ -235,7 +316,7 @@ struct KpBarChart: View {
                     yStart: .value("Zero", 0),
                     yEnd: .value("Kp", max(p.kp, 0.15))
                 )
-                .foregroundStyle(Theme.kpColor(p.kp).opacity(p.kind == .predicted ? 0.55 : 1))
+                .foregroundStyle(Theme.kpColor(p.kp).opacity(picked.map { $0.time == p.time ? 1 : 0.35 } ?? (p.kind == .predicted ? 0.55 : 1)))
             }
             RuleMark(x: .value("Now", now)).foregroundStyle(.white.opacity(0.6))
             RuleMark(y: .value("Overhead", thresholds.overhead))
@@ -257,6 +338,7 @@ struct KpBarChart: View {
                 }
             }
         }
+        .chartScrub($selected)
         .frame(height: height)
     }
 }
@@ -278,4 +360,67 @@ func timeAxis(range: ChartRange, tz: TimeZone) -> some AxisContent {
             if let date = value.as(Date.self) { Text(TimeText.format(date, tz, "h:mm")) }
         }
     }
+}
+
+// MARK: - Press-and-hold readout
+
+/// Press and hold on a chart, then slide, to pick a time. The selection clears when you let go.
+/// A short hold is required first so normal scrolling still works.
+struct ChartScrub: ViewModifier {
+    @Binding var selection: Date?
+
+    func body(content: Content) -> some View {
+        content.chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .gesture(
+                        LongPressGesture(minimumDuration: 0.25)
+                            .sequenced(before: DragGesture(minimumDistance: 0))
+                            .onChanged { value in
+                                guard case .second(true, let drag) = value else { return }
+                                if selection == nil { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+                                guard let drag else { return }
+                                let plot = geo[proxy.plotAreaFrame]
+                                let x = min(max(drag.location.x - plot.minX, 0), plot.width)
+                                if let date: Date = proxy.value(atX: x) { selection = date }
+                            }
+                            .onEnded { _ in selection = nil }
+                    )
+            }
+        }
+    }
+}
+
+extension View {
+    func chartScrub(_ selection: Binding<Date?>) -> some View {
+        modifier(ChartScrub(selection: selection))
+    }
+}
+
+/// The point closest in time to `date`.
+func nearest(_ points: [TimePoint], to date: Date) -> TimePoint? {
+    points.min { abs($0.time.timeIntervalSince(date)) < abs($1.time.timeIntervalSince(date)) }
+}
+
+/// Header text shown while scrubbing: the time, then the values.
+struct ScrubReadout: View {
+    var time: String
+    var values: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(time).foregroundStyle(.secondary)
+            Text(values).fontWeight(.semibold).foregroundStyle(.primary)
+        }
+        .font(.caption.monospacedDigit())
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+}
+
+/// Vertical line marking the selected time.
+func scrubRule(_ date: Date) -> some ChartContent {
+    RuleMark(x: .value("Selected", date))
+        .foregroundStyle(.white.opacity(0.7))
+        .lineStyle(StrokeStyle(lineWidth: 1))
 }
