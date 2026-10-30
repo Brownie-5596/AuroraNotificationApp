@@ -46,14 +46,19 @@ enum Theme {
 struct Card<Content: View>: View {
     var title: String?
     var systemImage: String?
+    var info: ChartInfo?
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let title {
-                Label(title, systemImage: systemImage ?? "circle")
-                    .font(.headline)
-                    .labelStyle(.titleAndIcon)
+                HStack {
+                    Label(title, systemImage: systemImage ?? "circle")
+                        .font(.headline)
+                        .labelStyle(.titleAndIcon)
+                    Spacer()
+                    if let info { InfoButton(info: info) }
+                }
             }
             content
         }
@@ -69,10 +74,19 @@ struct StatTile: View {
     var unit: String = ""
     var color: Color = .primary
     var footnote: String?
+    /// When set, tapping the tile explains what it means.
+    var info: ChartInfo?
+    @State private var showingInfo = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 3) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                if info != nil {
+                    Spacer(minLength: 0)
+                    Image(systemName: "info.circle").font(.caption2).foregroundStyle(.secondary.opacity(0.7))
+                }
+            }
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value).font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(color)
                 if !unit.isEmpty { Text(unit).font(.caption2).foregroundStyle(.secondary) }
@@ -84,6 +98,9 @@ struct StatTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture { if info != nil { showingInfo = true } }
+        .sheet(isPresented: $showingInfo) { if let info { InfoSheet(info: info) } }
     }
 }
 

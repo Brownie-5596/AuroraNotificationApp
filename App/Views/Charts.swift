@@ -45,6 +45,8 @@ struct SeriesChart: View {
     var rules: [(Double, String)] = []
     var height: CGFloat = 140
     var tz: TimeZone
+    var info: ChartInfo?
+    var interactive = false
     @State private var selected: Date?
 
     var body: some View {
@@ -55,6 +57,7 @@ struct SeriesChart: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title).font(.subheadline.weight(.semibold))
+                if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let picked {
                     ScrubReadout(time: TimeText.time(picked.time, tz), values: "\(picked.value.f(digits)) \(unit)")
@@ -87,7 +90,7 @@ struct SeriesChart: View {
                     }
                 }
                 .chartXAxis { timeAxis(range: range, tz: tz) }
-                .chartScrub($selected)
+                .chartScrub($selected, enabled: interactive)
                 .frame(height: height)
             }
         }
@@ -101,6 +104,9 @@ struct BzChart: View {
     var threshold: Double
     var tz: TimeZone
     var showComponents = false
+    var height: CGFloat = 180
+    var info: ChartInfo?
+    var interactive = false
     @State private var selected: Date?
 
     var body: some View {
@@ -112,6 +118,7 @@ struct BzChart: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Bz / Bt (GSM)").font(.subheadline.weight(.semibold))
+                if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let pickedBz {
                     ScrubReadout(
@@ -127,7 +134,7 @@ struct BzChart: View {
                 }
             }
             if bz.isEmpty {
-                Text("No data").font(.caption).foregroundStyle(.secondary).frame(height: 180)
+                Text("No data").font(.caption).foregroundStyle(.secondary).frame(height: height)
             } else {
                 Chart {
                     ForEach(bz) { p in
@@ -164,8 +171,8 @@ struct BzChart: View {
                 )
                 .chartLegend(.hidden)
                 .chartXAxis { timeAxis(range: range, tz: tz) }
-                .chartScrub($selected)
-                .frame(height: 180)
+                .chartScrub($selected, enabled: interactive)
+                .frame(height: height)
             }
         }
     }
@@ -186,6 +193,8 @@ struct MultiSeriesChart: View {
     var range: ChartRange
     var tz: TimeZone
     var height: CGFloat = 140
+    var info: ChartInfo?
+    var interactive = false
     @State private var selected: Date?
 
     var body: some View {
@@ -199,6 +208,7 @@ struct MultiSeriesChart: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("\(title) (\(unit))").font(.subheadline.weight(.semibold))
+                if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let first = picked.first {
                     ScrubReadout(
@@ -228,7 +238,7 @@ struct MultiSeriesChart: View {
                 .chartForegroundStyleScale(domain: colors.map { $0.key }, range: colors.map { $0.value })
                 .chartLegend(position: .top, alignment: .trailing)
                 .chartXAxis { timeAxis(range: range, tz: tz) }
-                .chartScrub($selected)
+                .chartScrub($selected, enabled: interactive)
                 .frame(height: height)
             }
         }
@@ -239,15 +249,21 @@ struct MultiSeriesChart: View {
 struct XrayChart: View {
     var samples: [XraySample]
     var tz: TimeZone
+    var range: ChartRange = .h24
+    var height: CGFloat = 130
+    var info: ChartInfo?
+    var interactive = false
     private let classLevels: [(Double, String)] = [(-7, "B"), (-6, "C"), (-5, "M"), (-4, "X")]
     @State private var selected: Date?
 
     var body: some View {
-        let points = downsample(samples.map { TimePoint(time: $0.time, value: log10($0.flux), series: "x") })
+        let cutoff = Date().addingTimeInterval(-range.seconds)
+        let points = downsample(samples.filter { $0.time >= cutoff }.map { TimePoint(time: $0.time, value: log10($0.flux), series: "x") })
         let picked = selected.flatMap { nearest(points, to: $0) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("GOES X-ray (0.1–0.8 nm)").font(.subheadline.weight(.semibold))
+                if let info, !interactive { InfoButton(info: info) }
                 Spacer()
                 if let picked {
                     ScrubReadout(time: TimeText.time(picked.time, tz), values: FlareClass.label(flux: pow(10, picked.value)))
@@ -276,9 +292,9 @@ struct XrayChart: View {
             }
             .chartYScale(domain: -8.5 ... -3)
             .chartYAxis(.hidden)
-            .chartXAxis { timeAxis(range: .h24, tz: tz) }
-            .chartScrub($selected)
-            .frame(height: 130)
+            .chartXAxis { timeAxis(range: range, tz: tz) }
+            .chartScrub($selected, enabled: interactive)
+            .frame(height: height)
         }
     }
 }
@@ -289,6 +305,7 @@ struct KpBarChart: View {
     var thresholds: VisibilityThresholds
     var tz: TimeZone
     var height: CGFloat = 170
+    var interactive = false
     @State private var selected: Date?
 
     var body: some View {
@@ -300,8 +317,8 @@ struct KpBarChart: View {
                     time: "\(TimeText.format(picked.time, tz, "EEE h a"))–\(TimeText.format(picked.end, tz, "h a"))",
                     values: "Kp \(KpFormat.label(picked.kp))" + (KpFormat.gLabel(picked.kp).map { " (\($0))" } ?? "") + " · \(picked.kind.rawValue)"
                 )
-            } else {
-                Text("Press and hold a bar for details").font(.caption2).foregroundStyle(.secondary)
+            } else if interactive {
+                Text("Drag across the bars for details").font(.caption).foregroundStyle(.secondary)
             }
             chart(now: now, picked: picked)
         }
@@ -338,7 +355,7 @@ struct KpBarChart: View {
                 }
             }
         }
-        .chartScrub($selected)
+        .chartScrub($selected, enabled: interactive)
         .frame(height: height)
     }
 }
@@ -364,36 +381,39 @@ func timeAxis(range: ChartRange, tz: TimeZone) -> some AxisContent {
 
 // MARK: - Press-and-hold readout
 
-/// Press and hold on a chart, then slide, to pick a time. The selection clears when you let go.
-/// A short hold is required first so normal scrolling still works.
+/// Drag (or tap) on a chart to pick a time; the selection stays until you pick another point.
+/// Only used in the full-screen chart view — on the main page charts don't take touches, so
+/// scrolling isn't affected.
 struct ChartScrub: ViewModifier {
     @Binding var selection: Date?
+    var enabled: Bool
 
     func body(content: Content) -> some View {
-        content.chartOverlay { proxy in
-            GeometryReader { geo in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .gesture(
-                        LongPressGesture(minimumDuration: 0.25)
-                            .sequenced(before: DragGesture(minimumDistance: 0))
-                            .onChanged { value in
-                                guard case .second(true, let drag) = value else { return }
-                                if selection == nil { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-                                guard let drag else { return }
-                                let plot = geo[proxy.plotAreaFrame]
-                                let x = min(max(drag.location.x - plot.minX, 0), plot.width)
-                                if let date: Date = proxy.value(atX: x) { selection = date }
-                            }
-                            .onEnded { _ in selection = nil }
-                    )
+        if enabled {
+            content.chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { drag in
+                                    let plot = geo[proxy.plotAreaFrame]
+                                    let x = min(max(drag.location.x - plot.minX, 0), plot.width)
+                                    guard let date: Date = proxy.value(atX: x) else { return }
+                                    if selection == nil { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+                                    selection = date
+                                }
+                        )
+                }
             }
+        } else {
+            content
         }
     }
 }
 
 extension View {
-    func chartScrub(_ selection: Binding<Date?>) -> some View {
-        modifier(ChartScrub(selection: selection))
+    func chartScrub(_ selection: Binding<Date?>, enabled: Bool) -> some View {
+        modifier(ChartScrub(selection: selection, enabled: enabled))
     }
 }
 

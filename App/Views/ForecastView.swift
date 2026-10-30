@@ -13,9 +13,13 @@ struct ForecastView: View {
                         if let snapshot = model.snapshot {
                             let tz = model.location.timeZone
                             nightsCard
-                            Card(title: "3-day Kp forecast (3-hour blocks)", systemImage: "chart.bar.xaxis") {
-                                KpBarChart(points: snapshot.kpForecast.filter { $0.end > Date().addingTimeInterval(-24 * 3600) },
-                                           thresholds: model.location.visibility, tz: tz)
+                            let kpInfo = ChartInfo.kp(model.location)
+                            Card(title: "3-day Kp forecast (3-hour blocks)", systemImage: "chart.bar.xaxis", info: kpInfo) {
+                                ExpandableChart(info: kpInfo, range: nil) { _, expanded in
+                                    KpBarChart(points: snapshot.kpForecast.filter { $0.end > Date().addingTimeInterval(-24 * 3600) },
+                                               thresholds: model.location.visibility, tz: tz,
+                                               height: expanded ? 300 : 170, interactive: expanded)
+                                }
                                 if let max = snapshot.upcomingKp(now: Date()).max(by: { $0.kp < $1.kp }) {
                                     Text("Highest expected: Kp \(KpFormat.label(max.kp))\(KpFormat.gLabel(max.kp).map { " (\($0))" } ?? "") at \(LocalTime(tz: tz).dayTime(max.time))")
                                         .font(.caption).foregroundStyle(.secondary)
@@ -49,13 +53,16 @@ struct ForecastView: View {
             }
             .refreshable { await model.refresh() }
             .navigationTitle("Forecast")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) { GlossaryButton(location: model.location) }
+            }
             .screenBackground()
         }
     }
 
     var nightsCard: some View {
         let lt = LocalTime(tz: model.location.timeZone)
-        return Card(title: "Next nights in \(model.location.name)", systemImage: "moon.stars") {
+        return Card(title: "Next nights in \(model.location.name)", systemImage: "moon.stars", info: .kp(model.location)) {
             if model.nights.isEmpty {
                 Text("No forecast available").foregroundStyle(.secondary)
             }
@@ -103,7 +110,7 @@ struct ForecastView: View {
     }
 
     func cmeCard(_ snapshot: SpaceWeatherSnapshot) -> some View {
-        Card(title: "CMEs heading our way", systemImage: "sun.max.trianglebadge.exclamationmark") {
+        Card(title: "CMEs heading our way", systemImage: "sun.max.trianglebadge.exclamationmark", info: .cme) {
             let upcoming = snapshot.cmeArrivals.filter { $0.arrival > Date().addingTimeInterval(-12 * 3600) }
             if upcoming.isEmpty {
                 Text(snapshot.errors["enlil"] != nil && snapshot.cmeFetchedAt == nil
@@ -127,7 +134,7 @@ struct ProbabilityCard: View {
     var probs: GeomagProbabilities
 
     var body: some View {
-        Card(title: "3-day geomagnetic probabilities", systemImage: "percent") {
+        Card(title: "3-day geomagnetic probabilities", systemImage: "percent", info: .geomagProbs) {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                 GridRow {
                     Text("")
@@ -162,7 +169,7 @@ struct ScalesForecastCard: View {
     var scales: NOAAScales
 
     var body: some View {
-        Card(title: "NOAA scales outlook", systemImage: "gauge.with.dots.needle.67percent") {
+        Card(title: "NOAA scales outlook", systemImage: "gauge.with.dots.needle.67percent", info: .scales) {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
                 GridRow {
                     Text("").font(.caption)
@@ -201,15 +208,32 @@ struct OutlookCard: View {
     var days: [OutlookDay]
     var thresholds: VisibilityThresholds
     var tz: TimeZone
+
+    var body: some View {
+        Card(title: "27-day outlook (largest daily Kp)", systemImage: "calendar", info: .outlook27) {
+            ExpandableChart(info: .outlook27, range: nil) { _, expanded in
+                OutlookChart(days: days, thresholds: thresholds, height: expanded ? 300 : 150, interactive: expanded)
+            }
+        }
+    }
+}
+
+struct OutlookChart: View {
+    var days: [OutlookDay]
+    var thresholds: VisibilityThresholds
+    var height: CGFloat = 150
+    var interactive = false
     @State private var selected: Date?
 
     var body: some View {
         let utc = TimeZone(identifier: "UTC")!
         let picked = selected.flatMap { date in days.first { $0.date <= date && date < $0.date.addingTimeInterval(86400) } }
-        Card(title: "27-day outlook (largest daily Kp)", systemImage: "calendar") {
+        VStack(alignment: .leading, spacing: 6) {
             if let picked {
                 ScrubReadout(time: TimeText.format(picked.date, utc, "EEE MMM d"),
                              values: "Kp \(picked.kp) · Ap \(picked.ap) · F10.7 \(picked.radioFlux)")
+            } else if interactive {
+                Text("Drag across the bars for details").font(.caption).foregroundStyle(.secondary)
             }
             Chart {
                 ForEach(days, id: \.date) { d in
@@ -224,13 +248,11 @@ struct OutlookCard: View {
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day, count: 7)) { value in
                     AxisGridLine()
-                    AxisValueLabel { if let d = value.as(Date.self) { Text(TimeText.format(d, TimeZone(identifier: "UTC")!, "MMM d")) } }
+                    AxisValueLabel { if let d = value.as(Date.self) { Text(TimeText.format(d, utc, "MMM d")) } }
                 }
             }
-            .chartScrub($selected)
-            .frame(height: 150)
-            Text("The Sun rotates every ~27 days, so active coronal holes tend to come back around. Good for spotting likely-active periods weeks ahead.")
-                .font(.caption2).foregroundStyle(.secondary)
+            .chartScrub($selected, enabled: interactive)
+            .frame(height: height)
         }
     }
 }
@@ -275,7 +297,7 @@ struct TransitCalculator: View {
 
     var body: some View {
         let estimate = CMETransit.dragBasedArrival(speed: speed, launchedAt: Date(), windSpeed: max(windSpeed, 300))
-        Card(title: "CME travel-time calculator", systemImage: "hare") {
+        Card(title: "CME travel-time calculator", systemImage: "hare", info: .cme) {
             HStack {
                 Text("Launch speed")
                 Spacer()

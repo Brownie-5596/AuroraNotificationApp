@@ -63,8 +63,8 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl status_bar "$UDID" override --time "21:41" --batteryLevel 100 --cellularBars 4 || true
           mkdir -p shots
-          shot() { # name tab [scrollTo]
-            xcrun simctl launch "$UDID" com.brownie5596.aurorawatch -uiSmoke YES -initialTab "$2" ${3:+-scrollTo "$3"}
+          shot() { # name tab scrollTo seconds [extra launch args...]
+            xcrun simctl launch "$UDID" com.brownie5596.aurorawatch -uiSmoke YES -initialTab "$2" ${3:+-scrollTo "$3"} "${@:5}"
             sleep "$4"
             xcrun simctl io "$UDID" screenshot "shots/$1.png"
             # make sure the app is still alive (didn't crash)
@@ -75,6 +75,8 @@ jobs:
           shot now-tiles now tiles 15
           shot now-wind now wind 15
           shot now-indices now indices 15
+          shot now-bz-detail now "" 30 -openChart bz
+          shot now-kp-detail now "" 30 -openChart kp
           shot forecast forecast "" 15
           shot forecast-probs forecast probs 15
           shot forecast-cme forecast cme 15
