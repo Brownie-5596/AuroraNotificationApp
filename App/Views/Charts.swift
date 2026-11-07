@@ -60,8 +60,8 @@ struct SeriesChart: View {
     @State private var selected: Date?
 
     var body: some View {
-        let cutoff = Date().addingTimeInterval(-range.seconds)
-        let data = downsample(points.filter { $0.time >= cutoff })
+        let domain = timeDomain(range)
+        let data = downsample(points.filter { domain.contains($0.time) })
         let picked = selected.flatMap { nearest(data, to: $0) }
         let digits = unit == "K" ? 0 : (unit == "GW" || unit == "km/s" ? 0 : 1)
         VStack(alignment: .leading, spacing: 6) {
@@ -99,7 +99,9 @@ struct SeriesChart: View {
                             .symbolSize(40)
                     }
                 }
-                .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartXScale(domain: domain)
+                .chartXAxis { timeAxis(range: range, tz: tz, domain: domain) }
+                .chartYAxis { valueAxis() }
                 .chartScrub($selected, enabled: interactive)
                 .frame(height: height)
             }
@@ -120,9 +122,10 @@ struct BzChart: View {
     @State private var selected: Date?
 
     var body: some View {
-        let cutoff = Date().addingTimeInterval(-range.seconds)
-        let bz = downsample(samples.filter { $0.time >= cutoff }.compactMap { s in s.bz.map { TimePoint(time: s.time, value: $0, series: "Bz") } })
-        let bt = downsample(samples.filter { $0.time >= cutoff }.compactMap { s in s.bt.map { TimePoint(time: s.time, value: $0, series: "Bt") } })
+        let domain = timeDomain(range)
+        let recent = samples.filter { domain.contains($0.time) }
+        let bz = downsample(recent.compactMap { s in s.bz.map { TimePoint(time: s.time, value: $0, series: "Bz") } })
+        let bt = downsample(recent.compactMap { s in s.bt.map { TimePoint(time: s.time, value: $0, series: "Bt") } })
         let pickedBz = selected.flatMap { nearest(bz, to: $0) }
         let pickedBt = selected.flatMap { nearest(bt, to: $0) }
         VStack(alignment: .leading, spacing: 6) {
@@ -137,9 +140,9 @@ struct BzChart: View {
                     )
                 } else {
                     HStack(spacing: 8) {
-                        legend("Bz south", Theme.south)
-                        legend("Bz north", Theme.north)
-                        legend("Bt", .white.opacity(0.7))
+                        legendDot("Bz south", Theme.south)
+                        legendDot("Bz north", Theme.north)
+                        legendDot("Bt", .white.opacity(0.7))
                     }
                 }
             }
@@ -180,17 +183,12 @@ struct BzChart: View {
                     range: [Theme.south.opacity(0.6), Theme.north.opacity(0.5), Color.white.opacity(0.75), Color.white.opacity(0.25)]
                 )
                 .chartLegend(.hidden)
-                .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartXScale(domain: domain)
+                .chartXAxis { timeAxis(range: range, tz: tz, domain: domain) }
+                .chartYAxis { valueAxis() }
                 .chartScrub($selected, enabled: interactive)
                 .frame(height: height)
             }
-        }
-    }
-
-    func legend(_ text: String, _ color: Color) -> some View {
-        HStack(spacing: 3) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(.system(size: 9)).foregroundStyle(.secondary)
         }
     }
 }
@@ -208,8 +206,8 @@ struct MultiSeriesChart: View {
     @State private var selected: Date?
 
     var body: some View {
-        let cutoff = Date().addingTimeInterval(-range.seconds)
-        let grouped = Dictionary(grouping: points.filter { $0.time >= cutoff }, by: \.series)
+        let domain = timeDomain(range)
+        let grouped = Dictionary(grouping: points.filter { domain.contains($0.time) }, by: \.series)
         let series = grouped.mapValues { downsample($0.sorted { $0.time < $1.time }) }
         let data = series.values.flatMap { $0 }
         let picked: [TimePoint] = selected.map { date in
@@ -225,6 +223,10 @@ struct MultiSeriesChart: View {
                         time: range.readout(first.time, tz),
                         values: picked.map { "\($0.series) \($0.value.f())" }.joined(separator: " · ")
                     )
+                } else {
+                    HStack(spacing: 8) {
+                        ForEach(Array(colors.enumerated()), id: \.offset) { _, pair in legendDot(pair.key, pair.value) }
+                    }
                 }
             }
             if data.isEmpty {
@@ -246,8 +248,10 @@ struct MultiSeriesChart: View {
                     }
                 }
                 .chartForegroundStyleScale(domain: colors.map { $0.key }, range: colors.map { $0.value })
-                .chartLegend(position: .top, alignment: .trailing)
-                .chartXAxis { timeAxis(range: range, tz: tz) }
+                .chartLegend(.hidden)
+                .chartXScale(domain: domain)
+                .chartXAxis { timeAxis(range: range, tz: tz, domain: domain) }
+                .chartYAxis { valueAxis() }
                 .chartScrub($selected, enabled: interactive)
                 .frame(height: height)
             }
@@ -263,12 +267,11 @@ struct XrayChart: View {
     var height: CGFloat = 130
     var info: ChartInfo?
     var interactive = false
-    private let classLevels: [(Double, String)] = [(-7, "B"), (-6, "C"), (-5, "M"), (-4, "X")]
     @State private var selected: Date?
 
     var body: some View {
-        let cutoff = Date().addingTimeInterval(-range.seconds)
-        let points = downsample(samples.filter { $0.time >= cutoff }.map { TimePoint(time: $0.time, value: log10($0.flux), series: "x") })
+        let domain = timeDomain(range)
+        let points = downsample(samples.filter { domain.contains($0.time) }.map { TimePoint(time: $0.time, value: log10($0.flux), series: "x") })
         let picked = selected.flatMap { nearest(points, to: $0) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -286,13 +289,6 @@ struct XrayChart: View {
                     LineMark(x: .value("Time", p.time), y: .value("log flux", p.value))
                         .foregroundStyle(.orange)
                 }
-                ForEach(Array(classLevels.enumerated()), id: \.offset) { _, level in
-                    RuleMark(y: .value("Class", level.0))
-                        .foregroundStyle(.white.opacity(0.15))
-                        .annotation(position: .top, alignment: .trailing) {
-                            Text(level.1).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                        }
-                }
                 if let picked {
                     scrubRule(picked.time)
                     PointMark(x: .value("Time", picked.time), y: .value("log flux", picked.value))
@@ -301,8 +297,21 @@ struct XrayChart: View {
                 }
             }
             .chartYScale(domain: -8.5 ... -3)
-            .chartYAxis(.hidden)
-            .chartXAxis { timeAxis(range: range, tz: tz) }
+            .chartXScale(domain: domain)
+            .chartXAxis { timeAxis(range: range, tz: tz, domain: domain) }
+            .chartYAxis {
+                // Flare classes instead of numbers: each class is 10× the one below.
+                AxisMarks(position: .trailing, values: [-8.0, -7.0, -6.0, -5.0, -4.0]) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(["A", "B", "C", "M", "X"][min(max(Int(v) + 8, 0), 4)])
+                                .fontWeight(.bold)
+                                .frame(width: valueAxisWidth, alignment: .leading)
+                        }
+                    }
+                }
+            }
             .chartScrub($selected, enabled: interactive)
             .frame(height: height)
         }
@@ -370,24 +379,86 @@ struct KpBarChart: View {
     }
 }
 
-func timeAxis(range: ChartRange, tz: TimeZone) -> some AxisContent {
-    let (unit, count, format): (Calendar.Component, Int, String) = {
-        switch range {
-        case .m30: return (.minute, 10, "h:mm")
-        case .h1: return (.minute, 15, "h:mm")
-        case .h3: return (.minute, 30, "h:mm")
-        case .h6: return (.hour, 1, "h:mm")
-        case .h12: return (.hour, 3, "h a")
-        case .h24: return (.hour, 4, "h a")
-        case .d2: return (.hour, 12, "EEE h a")
-        case .d4, .d7: return (.day, 1, "EEE")
+/// Every time-series chart uses the same span ending at "now", so the same moment lines up
+/// vertically across charts even when feeds end at slightly different minutes.
+func timeDomain(_ range: ChartRange, now: Date = Date()) -> ClosedRange<Date> {
+    now.addingTimeInterval(-range.seconds)...now
+}
+
+/// Tick marks on round local times (e.g. 5:15, 5:30 — not 5:08, 5:23).
+func timeTicks(_ range: ChartRange, domain: ClosedRange<Date>, tz: TimeZone) -> [Date] {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = tz
+    let step: TimeInterval
+    switch range {
+    case .m30: step = 600
+    case .h1: step = 900
+    case .h3: step = 1800
+    case .h6: step = 3600
+    case .h12: step = 3 * 3600
+    case .h24: step = 4 * 3600
+    case .d2: step = 12 * 3600
+    case .d4, .d7: step = 86400
+    }
+    var ticks: [Date] = []
+    var day = cal.startOfDay(for: domain.lowerBound)
+    while day <= domain.upperBound {
+        var t = day
+        let next = cal.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86400)
+        while t < next {
+            if domain.contains(t) { ticks.append(t) }
+            t = t.addingTimeInterval(step)
         }
-    }()
-    return AxisMarks(values: .stride(by: unit, count: count)) { value in
+        day = next
+    }
+    return ticks
+}
+
+func timeAxis(range: ChartRange, tz: TimeZone, domain: ClosedRange<Date>) -> some AxisContent {
+    let format: String
+    switch range {
+    case .m30, .h1, .h3: format = "h:mm"
+    case .h6, .h12, .h24: format = "h a"
+    case .d2: format = "EEE h a"
+    case .d4, .d7: format = "EEE"
+    }
+    return AxisMarks(values: timeTicks(range, domain: domain, tz: tz)) { value in
         AxisGridLine()
         AxisValueLabel {
             if let date = value.as(Date.self) { Text(TimeText.format(date, tz, format)) }
         }
+    }
+}
+
+/// Width reserved for the value labels on the right of every time-series chart, so all plot
+/// areas are exactly the same width.
+let valueAxisWidth: CGFloat = 36
+
+func valueAxis() -> some AxisContent {
+    AxisMarks(position: .trailing) { value in
+        AxisGridLine()
+        AxisValueLabel {
+            if let v = value.as(Double.self) {
+                Text(compactNumber(v)).frame(width: valueAxisWidth, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// 150000 → "150k", 1500 → "1.5k", 0.4 → "0.4", 20 → "20".
+func compactNumber(_ v: Double) -> String {
+    let a = abs(v)
+    if a >= 10000 { return "\(Int((v / 1000).rounded()))k" }
+    if a >= 1000 { return String(format: "%.1fk", v / 1000) }
+    if v == v.rounded() { return "\(Int(v))" }
+    return a < 1 ? String(format: "%.2g", v) : String(format: "%.1f", v)
+}
+
+/// Small colored dot + name, for legends in a chart's title row.
+func legendDot(_ text: String, _ color: Color) -> some View {
+    HStack(spacing: 3) {
+        Circle().fill(color).frame(width: 6, height: 6)
+        Text(text).font(.system(size: 9)).foregroundStyle(.secondary)
     }
 }
 

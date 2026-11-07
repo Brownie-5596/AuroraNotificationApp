@@ -161,6 +161,10 @@ struct SettingsView: View {
             }
             Stepper("for \(Int(model.settings.bzMinutes)) minutes", value: $model.settings.bzMinutes, in: 5...60, step: 5)
             Toggle("Shock / sudden jump at L1", isOn: $model.settings.shockEnabled)
+            Toggle("GOES jump (substorm / compression)", isOn: $model.settings.goesEnabled)
+            if model.settings.goesEnabled {
+                Stepper("GOES rise ≥ \(Int(model.settings.goesJump)) nT in 10 min", value: $model.settings.goesJump, in: 10...50, step: 5)
+            }
             Toggle("Activity level alerts", isOn: $model.settings.activityEnabled)
             Picker("Minimum level", selection: $model.settings.minActivity) {
                 ForEach([ActivityLevel.possible, .likely, .strong], id: \.self) { Text($0.title).tag($0) }
@@ -177,7 +181,7 @@ struct SettingsView: View {
         } header: {
             Text("Real time (next ~30–60 min)")
         } footer: {
-            Text("\"Heads up\" alerts fire when Bz stays south past your limit, when a shock hits the L1 spacecraft (it reaches Earth in 30–60 min), or when the overall aurora chance climbs. Good starting point: −7 nT for 15 min. Lower it (−5) to hear about more events, raise it (−10) for only big ones.")
+            Text("\"Heads up\" alerts fire when Bz stays south past your limit, when a shock hits the L1 spacecraft (it reaches Earth in 30–60 min), when a GOES satellite sees the field jump (a substorm on the night side — aurora brightening now), or when the overall aurora chance climbs. Good starting point: −7 nT for 15 min. Lower it (−5) to hear about more events, raise it (−10) for only big ones.")
         }
     }
 

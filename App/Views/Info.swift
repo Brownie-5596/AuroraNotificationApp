@@ -165,7 +165,12 @@ extension ChartInfo {
         id: "goes", title: "GOES magnetometers", icon: "dot.radiowaves.left.and.right",
         summary: "Earth's magnetic field measured by weather satellites — shows shocks and substorms as they happen.",
         what: "The Hp (north–south) part of Earth's magnetic field measured by two GOES satellites in geostationary orbit, about 36,000 km up, in nT.",
-        read: "There's a normal daily wave (higher around local noon). A **sudden jump up** means a shock just compressed Earth's field — usually 30–60 min after a shock is seen at L1. On the night side, a **sharp dip followed by a recovery** is the signature of a substorm, which often matches the aurora suddenly brightening.",
+        read: """
+        There's a normal slow daily wave (higher around the satellite's local noon). A **sudden rise** stands out:
+        • On the **night side** (satellite local time 6 PM–6 AM) it's usually a substorm: the stretched field snaps back and the aurora suddenly brightens and dances.
+        • On the **day side** it's usually a compression: a shock or pressure pulse in the solar wind hit Earth's field, often 30–60 min after it was seen at L1.
+        The app alerts you when either satellite rises by 20 nT or more within 10 minutes (change this in Settings). GOES-East (GOES-19) is closest to Grand Forks; it's on the night side from roughly late afternoon to early morning Grand Forks time.
+        """,
         source: "NOAA GOES-East and GOES-West magnetometers."
     )
 

@@ -3,14 +3,14 @@ import Foundation
 public enum AlertKind: String, Codable, CaseIterable {
     case forecastEarly, forecastTomorrow, forecastTonight
     case cmeArrival, cmeSoon
-    case bzSouth, shock, activity
+    case bzSouth, shock, activity, goes
     case flare, noaa, test
 
     public var group: String {
         switch self {
         case .forecastEarly, .forecastTomorrow, .forecastTonight: return "forecast"
         case .cmeArrival, .cmeSoon: return "cme"
-        case .bzSouth, .shock, .activity: return "now"
+        case .bzSouth, .shock, .activity, .goes: return "now"
         case .flare: return "sun"
         case .noaa: return "noaa"
         case .test: return "test"
@@ -54,6 +54,9 @@ public struct AlertSettings: Codable, Hashable {
     /// How long Bz must stay at/below the threshold.
     public var bzMinutes = 15.0
     public var shockEnabled = true
+    /// Alert when a GOES satellite's field jumps by at least `goesJump` nT within 10 minutes.
+    public var goesEnabled = true
+    public var goesJump = 20.0
     public var activityEnabled = true
     public var minActivity: ActivityLevel = .possible
     /// Only send real-time alerts when the sun is below this altitude (°). −6 = end of civil twilight.
@@ -95,6 +98,8 @@ public struct AlertSettings: Codable, Hashable {
         bzThreshold = v(.bzThreshold, d.bzThreshold)
         bzMinutes = v(.bzMinutes, d.bzMinutes)
         shockEnabled = v(.shockEnabled, d.shockEnabled)
+        goesEnabled = v(.goesEnabled, d.goesEnabled)
+        goesJump = v(.goesJump, d.goesJump)
         activityEnabled = v(.activityEnabled, d.activityEnabled)
         minActivity = v(.minActivity, d.minActivity)
         darknessGate = v(.darknessGate, d.darknessGate)
@@ -205,7 +210,7 @@ public enum AlertEngine {
         var alerts: [AuroraAlert] = []
         state.absorbFiredPlans(now: now)
         let firstRun = !state.initialized
-        let nowcast = Outlook.nowcast(snapshot: snapshot, location: loc, now: now)
+        let nowcast = Outlook.nowcast(snapshot: snapshot, location: loc, goesThreshold: settings.goesJump, now: now)
         let nights = Outlook.nights(snapshot: snapshot, location: loc, now: now)
 
         func cloudNote(_ cover: Double?) -> String {
@@ -282,6 +287,30 @@ public enum AlertEngine {
                 }
             }
 
+            // GOES jump: substorm on the night side (needs dark), compression on the day side.
+            if settings.goesEnabled, let jump = nowcast.goesJump, now.timeIntervalSince(jump.time) < 30 * 60,
+               jump.nightSide ? darkEnough : (nowcast.sunAltitude < 0 || !settings.darknessGate) {
+                let key = "goes-\(Int(jump.time.timeIntervalSince1970 / 900))"
+                if state.sent[key] == nil && !recentlySent(state, prefix: "goes-", within: 45 * 60, now: now) {
+                    let when = TimeText.time(jump.time, tz)
+                    let title: String
+                    var body: String
+                    if jump.nightSide {
+                        title = "🌌 Substorm signature from GOES"
+                        body = "GOES-\(jump.satellite) saw Earth's magnetic field snap back +\(Int(jump.rise)) nT in \(jump.minutes) min at \(when) on the night side — the classic sign of a substorm. Aurora often brightens and starts moving within minutes: look north now."
+                    } else {
+                        title = "⚡ Earth's magnetic field just got hit"
+                        body = "GOES-\(jump.satellite) jumped +\(Int(jump.rise)) nT in \(jump.minutes) min at \(when) — a shock or pressure pulse compressing Earth's field. If Bz turns south, aurora can follow."
+                    }
+                    if let kp = nowcast.estimatedKp { body += " Kp ≈ \(String(format: "%.1f", kp))." }
+                    if let bz = nowcast.bz { body += " Bz \(String(format: "%+.1f", bz)) nT." }
+                    body += cloudNote(nowcast.cloudCover)
+                    alerts.append(AuroraAlert(id: key, date: now, kind: .goes, title: title, body: body,
+                                              priority: jump.nightSide ? 4 : 3, tags: ["satellite_antenna"]))
+                    state.sent[key] = .init(date: now, value: jump.rise)
+                }
+            }
+
             if darkEnough {
                 // Sustained southward Bz.
                 let sustained = SolarWind.isSustainedSouth(snapshot.mag, threshold: settings.bzThreshold, minutes: settings.bzMinutes, now: now)
@@ -311,7 +340,12 @@ public enum AlertEngine {
                     let rec = state.sent["activity"]
                     let level = Double(nowcast.level.rawValue)
                     let fresh = rec == nil || level > rec!.value || now.timeIntervalSince(rec!.date) > cooldown
-                    if fresh {
+                    // A shock or GOES alert sent just now already says "activity may build" — don't
+                    // send a second notification for the same event (it will still escalate later).
+                    let justWarned = alerts.contains { $0.kind == .shock || $0.kind == .goes }
+                    if fresh && justWarned && nowcast.level == .possible {
+                        state.sent["activity"] = .init(date: now, value: level)
+                    } else if fresh {
                         var body = "Aurora chance \(nowcast.score)/100 for \(loc.name)."
                         if let kp = nowcast.estimatedKp { body += " Kp ≈ \(String(format: "%.1f", kp)) — \(nowcast.visibility.description.lowercased())." }
                         if let bz = nowcast.bz { body += " Bz \(String(format: "%+.1f", bz)) nT." }

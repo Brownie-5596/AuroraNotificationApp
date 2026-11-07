@@ -206,6 +206,8 @@ public final class SpaceWeatherClient {
         async let flare = attempt { try FeedParser.latestFlare(try await self.data(self.swpc("/json/goes/primary/xray-flares-latest.json"))) }
         async let alerts = attempt { try FeedParser.alerts(try await self.data(self.swpc("/products/alerts.json"))) }
         async let scales = attempt { try FeedParser.scales(try await self.data(self.swpc("/products/noaa-scales.json"))) }
+        async let goes1 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/primary/magnetometers-6-hour.json"))) }
+        async let goes2 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/secondary/magnetometers-6-hour.json"))) }
 
         // The OVATION grid is ~900 KB and only updates every few minutes; refresh it at most every 15.
         let ovationFresh = previous?.ovation?.observationTime.map { now.timeIntervalSince($0) < 15 * 60 } ?? false
@@ -246,6 +248,8 @@ public final class SpaceWeatherClient {
         if let v = take(await flare, .flare) { snap.latestFlare = v }
         if let v = take(await alerts, .alerts) { snap.alerts = v }
         if let v = take(await scales, .scales) { snap.scales = v }
+        if let v = take(await goes1, .goesPrimary) { snap.goesPrimary = Self.merge(snap.goesPrimary, v, now: now, time: { $0.time }) }
+        if let v = take(await goes2, .goesSecondary) { snap.goesSecondary = Self.merge(snap.goesSecondary, v, now: now, time: { $0.time }) }
         if let v = take(await ovation, .ovation) { snap.ovation = v }
         if let v = take(await cme, .enlil), let arrivals = v {
             snap.cmeArrivals = arrivals

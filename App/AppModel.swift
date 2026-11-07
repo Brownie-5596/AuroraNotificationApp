@@ -64,7 +64,7 @@ final class AppModel: ObservableObject {
     func recompute() {
         guard let snapshot else { return }
         let now = Date()
-        nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, now: now)
+        nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump, now: now)
         nights = Outlook.nights(snapshot: snapshot, location: settings.location, now: now)
         tonightSky = Sky.nightSky(nightOf: Sky.currentNightOf(now: now, location: settings.location), location: settings.location)
     }

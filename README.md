@@ -33,6 +33,7 @@ A sideloadable iOS app that tells you when there's a real chance of seeing the n
 | 🌌 Tonight | Same, for tonight | Kp 5- |
 | ☀️ CME heading for Earth | NASA's ENLIL model predicts an Earth impact; a second alert when arrival is < 8 h away | on |
 | ⚡ Shock at L1 | Solar wind speed jumps ≥ 60 km/s with compressed density/field — includes time to Earth | on |
+| 🌌 / ⚡ GOES jump | A GOES satellite's field rises suddenly — a substorm (night side, aurora brightening now) or a compression (day side) | +20 nT in 10 min |
 | 🧲 Heads up: Bz south | Bz averages ≤ your limit for your chosen minutes | −7 nT for 15 min |
 | 👀 / 🌌 / 🚨 Activity | Aurora chance reaches Possible / Likely / Strong | Possible |
 | ☀️ Big flare | X-ray flare at or above a class | X1 |

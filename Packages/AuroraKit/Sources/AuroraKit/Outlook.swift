@@ -44,6 +44,8 @@ public struct Nowcast: Codable, Hashable {
     public var isDark: Bool
     public var streak: BzStreak?
     public var shock: ShockEvent?
+    /// A sudden rise in the field at a GOES satellite in the last hour (substorm or compression).
+    public var goesJump: GoesJump?
     public var travelTime: TimeInterval?
     public var cloudCover: Double?
     public var moonIllumination: Double
@@ -66,7 +68,7 @@ public enum Outlook {
     /// * Merging electric field (speed × southward Bz, 30-min mean) — up to 25
     /// * OVATION hemispheric power — up to 20
     /// * OVATION probability in the northern sky — up to 15
-    public static func nowcast(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, darkness: Double = -12, now: Date) -> Nowcast {
+    public static func nowcast(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, darkness: Double = -12, goesThreshold: Double = 20, now: Date) -> Nowcast {
         let thresholds = location.visibility
         var factors: [OutlookFactor] = []
         var score = 0.0
@@ -165,6 +167,20 @@ public enum Outlook {
         }
         if shock != nil { level = max(level, .possible) }
 
+        // GOES: a sudden rise in the field = substorm (night side) or compression (day side).
+        let goesJump = GoesWatch.detectJump(snapshot.goesPrimary + snapshot.goesSecondary, threshold: goesThreshold, now: now, lookback: 60)
+        if let jump = goesJump {
+            let when = TimeText.time(jump.time, location.timeZone)
+            factors.append(.init(
+                name: "GOES-\(jump.satellite) +\(Int(jump.rise)) nT jump",
+                detail: jump.nightSide
+                    ? "Substorm signature at \(when) — aurora often brightens right away"
+                    : "Compression at \(when) — a solar wind pulse hit Earth's field",
+                effect: .positive, points: 0
+            ))
+            if jump.nightSide && now.timeIntervalSince(jump.time) < 30 * 60 { level = max(level, .possible) }
+        }
+
         let sunAlt = Sky.sunAltitude(at: now, for: location)
         let cloud = cloudCover(at: now, clouds: snapshot.clouds)
         if let cloud {
@@ -184,6 +200,7 @@ public enum Outlook {
             sunAltitude: sunAlt, isDark: sunAlt < darkness,
             streak: magFresh ? SolarWind.bzStreak(snapshot.mag, threshold: -5, now: now) : nil,
             shock: shock,
+            goesJump: goesJump,
             travelTime: SolarWind.currentTravelTime(snapshot: snapshot, now: now),
             cloudCover: cloud, moonIllumination: moon,
             dataIsFresh: magFresh && plasmaFresh

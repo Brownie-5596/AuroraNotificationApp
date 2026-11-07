@@ -486,4 +486,50 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(Outlook.currentKp(snap, now: now) ?? 0, 4.33, accuracy: 0.01)
         XCTAssertEqual(Outlook.nowcast(snapshot: snap, location: .grandForks, now: now).estimatedKp ?? 0, 4.33, accuracy: 0.01)
     }
+
+    /// One sample per minute for `minutes` minutes ending at `end`, slowly rising (daily wave).
+    func goes(_ satellite: Int, end: Date, minutes: Int = 60, jumpAt: Int? = nil, jump: Double = 0) -> [GoesMagSample] {
+        (0..<minutes).map { i in
+            let t = end.addingTimeInterval(Double(i - minutes + 1) * 60)
+            var hp = 80 + Double(i) * 0.1
+            if let j = jumpAt, i >= j { hp += jump * min(1, Double(i - j + 1) / 5) } // rises over 5 min
+            return GoesMagSample(time: t, hp: hp, satellite: satellite)
+        }
+    }
+
+    func testGoesJumpDetection() throws {
+        // t0 = 04:00 UTC → GOES-19 local time ≈ 23:00 (night side).
+        XCTAssertNil(GoesWatch.detectJump(goes(19, end: t0), threshold: 20, now: t0))
+        let jump = try XCTUnwrap(GoesWatch.detectJump(goes(19, end: t0, jumpAt: 45, jump: 32), threshold: 20, now: t0))
+        XCTAssertEqual(jump.rise, 32, accuracy: 3)
+        XCTAssertTrue(jump.nightSide)
+        XCTAssertLessThanOrEqual(jump.minutes, 10)
+        // A single-sample glitch doesn't count.
+        var glitch = goes(19, end: t0)
+        glitch[50].hp += 40
+        XCTAssertNil(GoesWatch.detectJump(glitch, threshold: 20, now: t0))
+        // Too old.
+        XCTAssertNil(GoesWatch.detectJump(goes(19, end: t0, jumpAt: 5, jump: 32), threshold: 20, now: t0.addingTimeInterval(40 * 60), lookback: 30))
+        // 18:00 UTC → GOES-19 local ≈ 13:00 (day side).
+        let noon = SWDate.utc(year: 2026, month: 10, day: 20, hour: 18)
+        XCTAssertFalse(try XCTUnwrap(GoesWatch.detectJump(goes(19, end: noon, jumpAt: 45, jump: 25), threshold: 20, now: noon)).nightSide)
+    }
+
+    func testGoesSubstormAlert() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        var snap = stormSnapshot(kp: 2, bz: 1, speed: 400) // otherwise quiet
+        snap.goesPrimary = goes(19, end: t0, jumpAt: 50, jump: 30)
+        var state = AlertState()
+        let alerts = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0)
+        XCTAssertEqual(alerts.map(\.kind), [.goes])
+        XCTAssertTrue(alerts[0].title.contains("Substorm"))
+        // No repeat a few minutes later.
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0.addingTimeInterval(300)).isEmpty)
+        // Turned off: nothing.
+        settings.goesEnabled = false
+        var fresh = AlertState()
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &fresh, now: t0).filter { $0.kind == .goes }.isEmpty)
+    }
 }
