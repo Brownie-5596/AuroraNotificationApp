@@ -92,7 +92,7 @@ public final class SpaceWeatherClient {
         async let geomag = attempt { String(decoding: try await self.data(self.swpc("/text/3-day-geomag-forecast.txt")), as: UTF8.self) }
 
         let reuseOutlook = previous.flatMap { p in p.outlookFetchedAt.map { now.timeIntervalSince($0) < 6 * 3600 && !p.outlook27.isEmpty } } ?? false
-        let reuseCME = previous.flatMap { p in p.cmeFetchedAt.map { now.timeIntervalSince($0) < 3 * 3600 } } ?? false
+        let reuseCME = Self.skipCME(previous, now: now)
         let reuseClouds = previous.flatMap { p in p.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 && !p.clouds.isEmpty } } ?? false
 
         let previousOutlook = previous?.outlook27Raw ?? ""
@@ -173,12 +173,16 @@ public final class SpaceWeatherClient {
             snap.outlook27 = previous?.outlook27 ?? []
             snap.outlookFetchedAt = previous?.outlookFetchedAt
         }
+        snap.cmeTriedAt = reuseCME ? previous?.cmeTriedAt : now
+        snap.cmeError = previous?.cmeError
         if let arrivals = take(await cme, .enlil) {
             snap.cmeArrivals = arrivals
             snap.cmeFetchedAt = reuseCME ? previous?.cmeFetchedAt : now
+            if !reuseCME { snap.cmeError = nil }
         } else {
             snap.cmeArrivals = previous?.cmeArrivals ?? []
             snap.cmeFetchedAt = previous?.cmeFetchedAt
+            snap.cmeError = snap.errors[Feed.enlil.rawValue]
         }
         if let c = take(await clouds, .clouds) {
             snap.clouds = c
@@ -216,7 +220,7 @@ public final class SpaceWeatherClient {
             if ovationFresh { return previousOvation }
             return try FeedParser.ovation(try await self.data(self.swpc("/json/ovation_aurora_latest.json")), latitude: location.latitude, longitude: location.longitude)
         }
-        let cmeFresh = previous?.cmeFetchedAt.map { now.timeIntervalSince($0) < 3 * 3600 } ?? false
+        let cmeFresh = Self.skipCME(previous, now: now)
         async let cme = attempt { () async throws -> [CMEArrival]? in
             if cmeFresh { return nil }
             return try await self.fetchCMEArrivals(now: now, allowFallback: false)
@@ -251,15 +255,32 @@ public final class SpaceWeatherClient {
         if let v = take(await goes1, .goesPrimary) { snap.goesPrimary = Self.merge(snap.goesPrimary, v, now: now, time: { $0.time }) }
         if let v = take(await goes2, .goesSecondary) { snap.goesSecondary = Self.merge(snap.goesSecondary, v, now: now, time: { $0.time }) }
         if let v = take(await ovation, .ovation) { snap.ovation = v }
-        if let v = take(await cme, .enlil), let arrivals = v {
+        if !cmeFresh { snap.cmeTriedAt = now }
+        switch await cme {
+        case .success(let arrivals?):
             snap.cmeArrivals = arrivals
             snap.cmeFetchedAt = now
+            snap.cmeError = nil
+        case .success(nil):
+            break
+        case .failure(let error):
+            snap.errors[Feed.enlil.rawValue] = describe(error)
+            snap.cmeError = describe(error)
         }
         if let v = take(await clouds, .clouds), let points = v {
             snap.clouds = points
             snap.cloudsFetchedAt = now
         }
         return snap
+    }
+
+    /// CME predictions change slowly: refresh every 3 hours, and after a failure wait 30 minutes
+    /// before trying NASA again (each failed try can cost a background check up to 15 seconds).
+    static func skipCME(_ previous: SpaceWeatherSnapshot?, now: Date) -> Bool {
+        guard let previous else { return false }
+        if let fetched = previous.cmeFetchedAt, now.timeIntervalSince(fetched) < 3 * 3600 { return true }
+        if let tried = previous.cmeTriedAt, now.timeIntervalSince(tried) < 30 * 60 { return true }
+        return false
     }
 
     /// Appends `new` samples to `old`, replacing any overlap, and keeps the last 7 days. Samples

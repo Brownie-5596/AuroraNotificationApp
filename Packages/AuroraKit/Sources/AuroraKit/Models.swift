@@ -261,6 +261,15 @@ public struct SpaceWeatherSnapshot: Codable {
     public var outlook27Raw: String?
     public var cmeArrivals: [CMEArrival] = []
     public var cmeFetchedAt: Date?
+    /// Last attempt to reach NASA DONKI, and the error if it failed (NASA's service is often down;
+    /// we wait 30 minutes before trying again).
+    public var cmeTriedAt: Date?
+    public var cmeError: String?
+
+    /// True when CME predictions can't be trusted to be current because NASA isn't responding.
+    public func cmeUnavailable(now: Date = Date()) -> Bool {
+        cmeError != nil && (cmeFetchedAt.map { now.timeIntervalSince($0) > 6 * 3600 } ?? true)
+    }
     public var clouds: [CloudPoint] = []
     public var cloudsFetchedAt: Date?
     public var outlookFetchedAt: Date?

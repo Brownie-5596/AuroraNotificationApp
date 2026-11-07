@@ -400,13 +400,15 @@ func timeTicks(_ range: ChartRange, domain: ClosedRange<Date>, tz: TimeZone) -> 
     case .d2: step = 12 * 3600
     case .d4, .d7: step = 86400
     }
+    // Leave a little room at the right edge so the last label isn't cut off.
+    let usable = domain.lowerBound...domain.upperBound.addingTimeInterval(-range.seconds * 0.06)
     var ticks: [Date] = []
     var day = cal.startOfDay(for: domain.lowerBound)
     while day <= domain.upperBound {
         var t = day
         let next = cal.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86400)
         while t < next {
-            if domain.contains(t) { ticks.append(t) }
+            if usable.contains(t) { ticks.append(t) }
             t = t.addingTimeInterval(step)
         }
         day = next

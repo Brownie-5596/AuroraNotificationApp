@@ -143,7 +143,7 @@ extension ChartInfo {
         id: "kp1m", title: "Estimated Kp (1-minute)", icon: "speedometer",
         summary: "A real-time estimate of Kp, updated every minute.",
         what: "NOAA's running estimate of the current 3-hour Kp, updated every minute.",
-        read: "Use this to see whether activity is building right now. It restarts from 0 at the start of every 3-hour block (7 PM, 10 PM, 1 AM… in Grand Forks during daylight time), so a sudden drop to 0 at those times isn't real — the app uses the highest value of the last 45 minutes.",
+        read: "Use this to see whether activity is building right now. NOAA's estimate restarts from 0 at the start of every 3-hour block (6 PM, 9 PM, 12 AM… in Grand Forks in winter), so the chart and the app show the highest value of the previous 45 minutes instead — otherwise it would look like activity suddenly stopped.",
         source: "NOAA SWPC planetary K-index (1-minute)."
     )
 

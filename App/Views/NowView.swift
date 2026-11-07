@@ -143,7 +143,18 @@ struct NowView: View {
         let thresholds = model.location.visibility
         let kp = kpSeries(snapshot)
         let hemi = snapshot.hemiPower.map { TimePoint(time: $0.observed, value: $0.north) }
-        let kp1m = snapshot.kp1m.map { TimePoint(time: $0.time, value: $0.kp) }
+        // Highest estimate of the previous 45 minutes — what the app uses — so NOAA's restart from 0
+        // every 3 hours doesn't look like activity suddenly stopped.
+        let raw = snapshot.kp1m
+        let kp1m = raw.indices.map { i -> TimePoint in
+            var best = raw[i].kp
+            var j = i - 1
+            while j >= 0 && raw[i].time.timeIntervalSince(raw[j].time) < 45 * 60 {
+                best = max(best, raw[j].kp)
+                j -= 1
+            }
+            return TimePoint(time: raw[i].time, value: best)
+        }
         let goes = snapshot.goesPrimary.map { TimePoint(time: $0.time, value: $0.hp, series: "GOES-\($0.satellite)") }
             + snapshot.goesSecondary.map { TimePoint(time: $0.time, value: $0.hp, series: "GOES-\($0.satellite)") }
         let goesPalette = goesColors(snapshot)
@@ -353,7 +364,9 @@ struct ArrivalCard: View {
                 CMERow(cme: cme, tz: tz)
             }
             if snapshot.cmeArrivals.isEmpty {
-                Text("No Earth-directed CMEs in NASA's model runs right now.")
+                Text(snapshot.cmeUnavailable()
+                     ? "NASA's CME service isn't responding right now, so CME arrival predictions may be missing."
+                     : "No Earth-directed CMEs in NASA's model runs right now.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

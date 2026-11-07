@@ -125,8 +125,8 @@ struct ForecastView: View {
         Card(title: "CMEs heading our way", systemImage: "sun.max.trianglebadge.exclamationmark", info: .cme) {
             let upcoming = snapshot.cmeArrivals.filter { $0.arrival > Date().addingTimeInterval(-12 * 3600) }
             if upcoming.isEmpty {
-                Text(snapshot.errors["enlil"] != nil && snapshot.cmeFetchedAt == nil
-                     ? "NASA's CME service (DONKI) isn't responding right now — \(snapshot.errors["enlil"]!). It'll retry automatically."
+                Text(snapshot.cmeUnavailable()
+                     ? "NASA's CME service (DONKI) isn't responding right now — \(snapshot.cmeError ?? "no answer"). The app retries every 30 minutes."
                      : "No Earth-directed CMEs predicted by NASA's WSA-ENLIL model.")
                     .font(.caption).foregroundStyle(.secondary)
             }

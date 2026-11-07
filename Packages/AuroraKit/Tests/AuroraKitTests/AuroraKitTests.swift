@@ -532,4 +532,17 @@ final class AnalysisTests: XCTestCase {
         var fresh = AlertState()
         XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &fresh, now: t0).filter { $0.kind == .goes }.isEmpty)
     }
+
+    func testCMERetryWaitsAfterFailure() {
+        var snap = SpaceWeatherSnapshot(fetchedAt: t0)
+        XCTAssertFalse(SpaceWeatherClient.skipCME(nil, now: t0))
+        snap.cmeTriedAt = t0
+        snap.cmeError = "HTTP 503"
+        XCTAssertTrue(SpaceWeatherClient.skipCME(snap, now: t0.addingTimeInterval(10 * 60)))
+        XCTAssertFalse(SpaceWeatherClient.skipCME(snap, now: t0.addingTimeInterval(31 * 60)))
+        XCTAssertTrue(snap.cmeUnavailable(now: t0))
+        snap.cmeFetchedAt = t0
+        XCTAssertTrue(SpaceWeatherClient.skipCME(snap, now: t0.addingTimeInterval(2 * 3600)))
+        XCTAssertFalse(snap.cmeUnavailable(now: t0.addingTimeInterval(3600)))
+    }
 }

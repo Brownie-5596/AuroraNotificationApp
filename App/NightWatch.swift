@@ -23,6 +23,7 @@ final class NightWatch: ObservableObject {
 
     private var player: AVAudioPlayer?
     private var timer: Timer?
+    private var lastStarted: Date?
     private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -98,8 +99,10 @@ final class NightWatch: ObservableObject {
     private func tick() {
         guard isRunning else { return }
         if player?.isPlaying != true { resumeAudio() }
-        let last = Store.shared.lastCheck ?? .distantPast
+        // Time from when the last check *started*, so a slow check doesn't push the next one back.
+        let last = max(lastStarted ?? .distantPast, Store.shared.lastCheck ?? .distantPast)
         guard Date().timeIntervalSince(last) >= interval - 5 else { return }
+        lastStarted = Date()
         Task { await AlertRunner.run(reason: "night watch", quick: true) }
     }
 
