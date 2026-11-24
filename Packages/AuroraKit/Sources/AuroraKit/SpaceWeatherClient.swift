@@ -366,8 +366,7 @@ public final class SpaceWeatherClient {
     /// Only asks for what's new since the last sample, so after the first fetch (`hours` of data,
     /// ~30 KB an hour from NRCan) each refresh is a few KB.
     public func fetchGround(station: GroundStation, previous: [GroundMagSample], hours: Double, now: Date) async throws -> [GroundMagSample] {
-        let earliest = now.addingTimeInterval(-hours * 3600)
-        let start = max(earliest, previous.last?.time.addingTimeInterval(-10 * 60) ?? earliest)
+        let start = Self.groundStart(previous: previous, hours: hours, now: now)
         let end = now.addingTimeInterval(5 * 60)
         let utc = TimeZone(identifier: "UTC")!
         func stamp(_ date: Date) -> String { TimeText.format(date, utc, "yyyy-MM-dd'T'HH:mm:ss") }
@@ -381,6 +380,16 @@ public final class SpaceWeatherClient {
             fresh = try FeedParser.groundUSGS(try await data(url, session: optionalSession))
         }
         return Self.merge(previous, fresh, now: now, time: { $0.time })
+    }
+
+    /// Where to start a ground-magnetometer request: just before the newest sample we have, unless
+    /// what we have doesn't reach back `hours` (e.g. only the quick update's 3 hours so far), in
+    /// which case fill in the whole window once.
+    static func groundStart(previous: [GroundMagSample], hours: Double, now: Date) -> Date {
+        let earliest = now.addingTimeInterval(-hours * 3600)
+        guard let first = previous.first, let last = previous.last,
+              first.time <= earliest.addingTimeInterval(30 * 60) else { return earliest }
+        return max(earliest, last.time.addingTimeInterval(-10 * 60))
     }
 
     public func fetchClouds(location: ObserverLocation) async throws -> [CloudPoint] {

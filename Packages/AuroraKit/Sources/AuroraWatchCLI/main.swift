@@ -105,8 +105,8 @@ do {
     let nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump,
                                   groundThreshold: settings.groundChange, now: now)
     if let g = snapshot.groundReading(now: now) {
-        print("Ground \(g.station.id): \(snapshot.groundMag.count) min, latest \(Int(now.timeIntervalSince(g.time) / 60)) min ago, deviation \(String(format: "%+.0f", g.deviation)) nT, 1-h range \(Int(g.range60)) nT, \(g.level.title)"
-              + (g.surge.map { ", biggest 15-min change \(String(format: "%+.0f", $0.change)) nT" } ?? ""))
+        print("Ground \(g.station.id): \(snapshot.groundMag.count) min, latest \(Int(now.timeIntervalSince(g.time) / 60)) min ago, deviation \(g.deviation.signedWhole) nT, 1-h range \(Int(g.range60)) nT, \(g.level.title)"
+              + (g.surge.map { ", biggest 15-min change \($0.change.signedWhole) nT" } ?? ""))
     } else if let station = snapshot.groundStation {
         print("Ground \(station.id): \(snapshot.groundMag.count) min (not enough for a reading yet)")
     }

@@ -21,10 +21,10 @@ struct GroundCard: View {
             if let r = reading {
                 VStack(alignment: .leading, spacing: 3) {
                     (Text("\(r.level.title): ").bold().foregroundColor(Theme.groundColor(r.level))
-                     + Text("\(String(format: "%+.0f", r.deviation)) nT from normal, \(Int(r.range60)) nT swing in the last hour."))
+                     + Text("\(r.deviation.signedWhole) nT from normal, \(Int(r.range60)) nT swing in the last hour."))
                         .font(.subheadline)
                     if let s = r.surge, abs(s.change) >= threshold / 2 {
-                        Text("Biggest 15-min change: \(String(format: "%+.0f", s.change)) nT at \(lt.time(s.time))\(abs(s.change) >= threshold ? " — a substorm" : "").")
+                        Text("Biggest 15-min change: \(s.change.signedWhole) nT at \(lt.time(s.time))\(abs(s.change) >= threshold ? " — a substorm" : "").")
                             .font(.caption).foregroundStyle(abs(s.change) >= threshold ? Theme.aurora : .secondary)
                     }
                     if !r.isFresh(now: now) {

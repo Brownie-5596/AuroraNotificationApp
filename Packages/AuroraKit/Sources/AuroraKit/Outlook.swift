@@ -211,10 +211,10 @@ public enum Outlook {
             case .storm: detail = "Strong auroral currents \(km) km away — aurora is likely close to you"
             }
             if let s = groundSurge {
-                detail += "; \(String(format: "%+.0f", s.change)) nT in \(s.minutes) min at \(TimeText.time(s.time, location.timeZone)) (a substorm)"
+                detail += "; \(s.change.signedWhole) nT in \(s.minutes) min at \(TimeText.time(s.time, location.timeZone)) (a substorm)"
             }
             factors.append(.init(
-                name: "\(g.station.name) magnetometer \(String(format: "%+.0f", g.deviation)) nT",
+                name: "\(g.station.name) magnetometer \(g.deviation.signedWhole) nT",
                 detail: detail,
                 effect: g.level >= .active || groundSurge != nil ? .positive : .neutral, points: Int(part.rounded())
             ))

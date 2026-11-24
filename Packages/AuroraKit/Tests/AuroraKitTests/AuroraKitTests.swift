@@ -810,6 +810,27 @@ final class AnalysisTests: XCTestCase {
         XCTAssertFalse(later.contains { $0.kind == .ground })
     }
 
+    func testGroundFetchWindow() {
+        // Nothing yet: the whole window.
+        XCTAssertEqual(SpaceWeatherClient.groundStart(previous: [], hours: 6, now: t0), t0.addingTimeInterval(-6 * 3600))
+        // Only the quick update's 3 hours: fill in the 6-hour window once.
+        let three = ground(end: t0.addingTimeInterval(-60), hours: 3)
+        XCTAssertEqual(SpaceWeatherClient.groundStart(previous: three, hours: 6, now: t0), t0.addingTimeInterval(-6 * 3600))
+        // A full window: just the newest minutes.
+        let six = ground(end: t0.addingTimeInterval(-60), hours: 6)
+        XCTAssertEqual(SpaceWeatherClient.groundStart(previous: six, hours: 6, now: t0), t0.addingTimeInterval(-11 * 60))
+        // Days old: back to the whole window, not days of data.
+        let old = ground(end: t0.addingTimeInterval(-2 * 86400), hours: 6)
+        XCTAssertEqual(SpaceWeatherClient.groundStart(previous: old, hours: 6, now: t0), t0.addingTimeInterval(-6 * 3600))
+    }
+
+    func testSignedWhole() {
+        XCTAssertEqual((-0.3).signedWhole, "0")
+        XCTAssertEqual(0.4.signedWhole, "0")
+        XCTAssertEqual((-12.6).signedWhole, "-13")
+        XCTAssertEqual(40.0.signedWhole, "+40")
+    }
+
     func testOldSnapshotWithoutGroundDataLoads() throws {
         var snap = stormSnapshot(kp: 2, bz: 1, speed: 400)
         snap.groundStation = GroundStation.all[0]

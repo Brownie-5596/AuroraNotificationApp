@@ -272,6 +272,14 @@ extension FeedParser {
     }
 }
 
+extension Double {
+    /// Whole number with a sign: "+12", "-40", or "0" (never "-0").
+    public var signedWhole: String {
+        let v = rounded()
+        return v == 0 ? "0" : String(format: "%+.0f", v)
+    }
+}
+
 enum BinaryReader {
     static func u16(_ b: [UInt8], _ at: Int, little: Bool) -> UInt16 {
         let x = UInt16(b[at]) << 8 | UInt16(b[at + 1])

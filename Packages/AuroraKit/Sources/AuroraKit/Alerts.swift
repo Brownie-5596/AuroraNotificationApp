@@ -381,7 +381,7 @@ public enum AlertEngine {
                     let rec = state.sent["groundstorm"]
                     let fresh = rec == nil || g.disturbance >= rec!.value + 200 || (!out && now.timeIntervalSince(rec!.date) > cooldown)
                     if fresh && !sentSurge {
-                        var body = "The field at \(name) (\(km) km from you) is \(String(format: "%+.0f", g.deviation)) nT from normal, with a \(Int(g.range60)) nT swing in the last hour — the auroral electrojet is close. Look north; the aurora may be high in the sky."
+                        var body = "The field at \(name) (\(km) km from you) is \(g.deviation.signedWhole) nT from normal, with a \(Int(g.range60)) nT swing in the last hour — the auroral electrojet is close. Look north; the aurora may be high in the sky."
                         body += cloudNote(nowcast.cloudCover)
                         alerts.append(AuroraAlert(id: "groundstorm-\(Int(now.timeIntervalSince1970))", date: now, kind: .ground,
                                                   title: "🌌 Strong aurora currents near \(name)", body: body, priority: 4, tags: ["compass"]))

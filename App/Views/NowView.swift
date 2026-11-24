@@ -16,7 +16,8 @@ struct NowView: View {
                         if let snapshot = model.snapshot, let nowcast = model.nowcast {
                             header(snapshot)
                             OutingBanner()
-                            if !nightWatchEnabled && !promptDismissed { nightWatchPrompt }
+                            // While you're out the app is already watching every minute.
+                            if !nightWatchEnabled && !promptDismissed && model.outUntil == nil { nightWatchPrompt }
                             ChanceCard(nowcast: nowcast, location: model.location)
                             if let sky = model.tonightSky {
                                 TonightSkyCard(sky: sky, location: model.location, best: model.tonightPlan?.best).id("sky")
@@ -320,7 +321,7 @@ struct TilesGrid: View {
                     StatTile(title: "Bz south", value: nowcast.streak.map { $0.isSouth ? TimeText.duration($0.duration) : "0 min" } ?? "--",
                              color: (nowcast.streak?.isSouth ?? false) ? Theme.south : .primary, info: .bzStreak)
                     StatTile(title: snapshot.groundStation.map { "\($0.name.components(separatedBy: ",")[0]) mag" } ?? "Ground mag",
-                             value: nowcast.ground.map { String(format: "%+.0f", $0.deviation) } ?? "--", unit: "nT",
+                             value: nowcast.ground.map { $0.deviation.signedWhole } ?? "--", unit: "nT",
                              color: nowcast.ground.map { Theme.groundColor($0.level) } ?? .primary,
                              footnote: nowcast.ground.map { $0.level.title }, info: .ground)
                 }
