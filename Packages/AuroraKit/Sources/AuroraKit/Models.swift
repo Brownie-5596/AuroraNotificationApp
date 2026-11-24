@@ -300,6 +300,48 @@ public struct SpaceWeatherSnapshot: Codable {
         self.fetchedAt = fetchedAt
     }
 
+    /// Every field is optional when reading a saved snapshot, so adding a field in an update
+    /// (or a feed that changed shape) never makes the whole saved snapshot unreadable.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback
+        }
+        fetchedAt = v(.fetchedAt, Date.distantPast)
+        mag = v(.mag, [])
+        magSource = v(.magSource, nil)
+        plasma = v(.plasma, [])
+        plasmaSource = v(.plasmaSource, nil)
+        propagated = v(.propagated, [])
+        kpObserved = v(.kpObserved, [])
+        kpForecast = v(.kpForecast, [])
+        kp1m = v(.kp1m, [])
+        predictedKp = v(.predictedKp, [])
+        location = v(.location, nil)
+        hemiPower = v(.hemiPower, [])
+        goesPrimary = v(.goesPrimary, [])
+        goesSecondary = v(.goesSecondary, [])
+        xray = v(.xray, [])
+        latestFlare = v(.latestFlare, nil)
+        alerts = v(.alerts, [])
+        scales = v(.scales, nil)
+        ovation = v(.ovation, nil)
+        threeDayForecast = v(.threeDayForecast, nil)
+        geomagForecast = v(.geomagForecast, nil)
+        geomagProbabilities = v(.geomagProbabilities, nil)
+        outlook27 = v(.outlook27, [])
+        outlook27Raw = v(.outlook27Raw, nil)
+        cmeArrivals = v(.cmeArrivals, [])
+        cmeFetchedAt = v(.cmeFetchedAt, nil)
+        cmeTriedAt = v(.cmeTriedAt, nil)
+        cmeError = v(.cmeError, nil)
+        clouds = v(.clouds, [])
+        cloudsFetchedAt = v(.cloudsFetchedAt, nil)
+        outlookFetchedAt = v(.outlookFetchedAt, nil)
+        historyFetchedAt = v(.historyFetchedAt, nil)
+        errors = v(.errors, [:])
+    }
+
     public var latestMag: MagSample? { mag.last(where: { $0.bz != nil }) }
     public var latestPlasma: PlasmaSample? { plasma.last(where: { $0.speed != nil }) }
     public var latestEstimatedKp: EstimatedKp? { kp1m.last }

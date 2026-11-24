@@ -43,6 +43,16 @@ if let path = settingsPath, let data = FileManager.default.contents(atPath: path
 struct WatcherState: Codable {
     var alerts = AlertState()
     var snapshot: SpaceWeatherSnapshot?
+
+    init() {}
+
+    /// Read each part separately: an unreadable snapshot must never cost us the record of
+    /// which alerts were already sent (that would re-send them).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        alerts = (try? c.decodeIfPresent(AlertState.self, forKey: .alerts)) ?? AlertState()
+        snapshot = try? c.decodeIfPresent(SpaceWeatherSnapshot.self, forKey: .snapshot)
+    }
 }
 
 var stored = WatcherState()

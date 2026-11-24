@@ -644,4 +644,16 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(arrivals.count, 1)
         XCTAssertEqual(arrivals.first?.arrival, SWDate.utc(year: 2026, month: 11, day: 18, hour: 11))
     }
+
+    func testOldSavedSnapshotStillLoads() throws {
+        // A snapshot saved before `predictedKp`/`location` existed, with one feed in an unexpected shape.
+        let old = #"{"fetchedAt": 1790000000, "mag": [{"time": 1790000000, "bz": -4.5, "bt": 6}], "kpForecast": "garbage", "errors": {}}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let snap = try decoder.decode(SpaceWeatherSnapshot.self, from: Data(old.utf8))
+        XCTAssertEqual(snap.mag.first?.bz, -4.5)
+        XCTAssertTrue(snap.kpForecast.isEmpty)
+        XCTAssertTrue(snap.predictedKp.isEmpty)
+        XCTAssertNil(snap.location)
+    }
 }
