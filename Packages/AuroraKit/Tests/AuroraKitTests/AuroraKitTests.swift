@@ -656,4 +656,40 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(snap.predictedKp.isEmpty)
         XCTAssertNil(snap.location)
     }
+
+    func testReadingsSurviveAShortFeedGap() {
+        // The newest L1 data is 15 minutes old (a feed outage): still fresh enough to show.
+        let gf = ObserverLocation.grandForks
+        let snap = stormSnapshot(kp: 3, bz: -8, speed: 520)
+        let n = Outlook.nowcast(snapshot: snap, location: gf, now: t0.addingTimeInterval(15 * 60))
+        XCTAssertEqual(n.speed ?? 0, 520, accuracy: 0.1)
+        XCTAssertNotNil(n.density)
+        XCTAssertNotNil(n.coupling)
+        XCTAssertNotNil(n.streak?.mean30)
+        // Past the 20-minute freshness limit the readings are withheld.
+        XCTAssertNil(Outlook.nowcast(snapshot: snap, location: gf, now: t0.addingTimeInterval(25 * 60)).speed)
+    }
+
+    func testBzStreakBridgesAFeedGap() throws {
+        // 30 min south, a 15-minute hole in the data, then 10 more minutes south: one 55-minute streak.
+        let before = mag(Array(repeating: -9.0, count: 30), end: t0.addingTimeInterval(-25 * 60))
+        let after = mag(Array(repeating: -9.0, count: 10), end: t0)
+        let streak = try XCTUnwrap(SolarWind.bzStreak(before + after, threshold: -7, now: t0))
+        XCTAssertEqual(streak.duration / 60, 55, accuracy: 1)
+        XCTAssertEqual(streak.belowThresholdDuration / 60, 55, accuracy: 1)
+    }
+
+    func testFlatPredictedKpShowsEndOfForecast() {
+        var snap = stormSnapshot(kp: 1, bz: 1, speed: 350)
+        snap.predictedKp = (1...50).map { EstimatedKp(time: t0.addingTimeInterval(Double($0) * 60), kp: 0.33) }
+        let n = Outlook.nowcast(snapshot: snap, location: .grandForks, now: t0)
+        XCTAssertEqual(n.predictedKp?.time, t0.addingTimeInterval(50 * 60))
+    }
+
+    func testNewellNeedsASpeed() {
+        let m = mag(Array(repeating: -8.0, count: 30), end: t0)
+        let noSpeed = [PlasmaSample(time: t0, speed: nil, density: 5, temperature: 1e5)]
+        XCTAssertNil(SolarWind.recentNewell(mag: m, plasma: noSpeed, minutes: 30, now: t0))
+        XCTAssertNotNil(SolarWind.recentNewell(mag: m, plasma: plasma([450], end: t0), minutes: 30, now: t0))
+    }
 }

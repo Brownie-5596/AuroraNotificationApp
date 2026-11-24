@@ -24,11 +24,14 @@ struct ViewingPlanCard: View {
                     Text("Time"); Text("Sky"); Text("Kp"); Text("Clouds"); Text("Moon"); Text("")
                 }
                 .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                ForEach(plan.hours) { hour in
+                // Hours that are already over are left out; the current hour stays.
+                ForEach(plan.hours.filter { $0.start.addingTimeInterval(3600) > Date() }) { hour in
                     let inBest = plan.best.map { hour.start < $0.end && hour.start.addingTimeInterval(3600) > $0.start } ?? false
                     let twilight = Sky.Twilight(rawValue: hour.twilight) ?? .day
                     GridRow {
                         Text(lt.time(hour.start)).monospacedDigit()
+                            .fontWeight(inBest ? .bold : .regular)
+                            .foregroundStyle(inBest ? Theme.aurora : .primary)
                         RoundedRectangle(cornerRadius: 3)
                             .fill(SkyTimeline.color(twilight))
                             .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.2), lineWidth: 0.5))
@@ -43,10 +46,9 @@ struct ViewingPlanCard: View {
                     }
                     .font(.caption)
                     .padding(.vertical, 1)
-                    .background(inBest ? Theme.aurora.opacity(0.12) : .clear)
                 }
             }
-            Text("Bar = viewing quality: how dark × how clear × Moon × the Kp expected that hour.")
+            Text("Bar = viewing quality: how dark × how clear × Moon × the Kp expected that hour. Best hours in green.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }

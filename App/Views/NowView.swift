@@ -339,7 +339,7 @@ struct BzStreakCard: View {
 
     var body: some View {
         Card(title: "Bz — how long and how far south", systemImage: "arrow.down.to.line", info: .bzStreak) {
-            if let s = SolarWind.bzStreak(snapshot.mag, threshold: threshold, now: Date()) {
+            if let s = SolarWind.bzStreak(snapshot.mag, threshold: threshold, now: snapshot.latestMag?.time ?? Date()) {
                 let lt = LocalTime(tz: tz)
                 if s.isSouth {
                     Text("Southward for **\(TimeText.duration(s.duration))** (since \(lt.time(s.since)))")

@@ -81,8 +81,8 @@ public enum SolarWind {
         guard window.count >= max(3, Int(minutes * 0.5)) else { return nil }
         let speeds = recent(plasma, time: \.time, minutes: minutes + 10, now: now)
         guard !speeds.isEmpty else { return nil }
+        guard var speed = speeds.first(where: { $0.speed != nil })?.speed else { return nil }
         var j = speeds.startIndex
-        var speed = speeds.first?.speed ?? 400
         var values: [Double] = []
         for m in window {
             while j < speeds.endIndex && speeds[j].time <= m.time {
@@ -127,7 +127,8 @@ public enum SolarWind {
     }
 
     /// Finds the run of samples (ending at the newest sample) that satisfy `matches`, walking backwards.
-    /// Excursions shorter than `tolerance` don't break the run; data gaps over 10 minutes do.
+    /// Excursions shorter than `tolerance` don't break the run; data gaps over 20 minutes do
+    /// (the L1 feeds have occasional 10–15 minute outages that shouldn't reset a streak).
     static func run(_ points: [(Date, Double)], tolerance: TimeInterval, _ matches: (Double) -> Bool) -> (start: Date, end: Date, values: [Double])? {
         var start: Date?
         var end: Date?
@@ -135,7 +136,7 @@ public enum SolarWind {
         var excursionLatest: Date?
         var previous = points.last?.0
         for point in points.reversed() {
-            if let prev = previous, prev.timeIntervalSince(point.0) > 10 * 60 { break }
+            if let prev = previous, prev.timeIntervalSince(point.0) > 20 * 60 { break }
             previous = point.0
             if matches(point.1) {
                 if end == nil { end = point.0 }

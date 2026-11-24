@@ -98,12 +98,17 @@ public enum Outlook {
         }
 
         // Bz / electric field
+        // Averages end at the newest sample rather than at "now", so a short gap in the feed
+        // (the L1 spacecraft drop out for 10-15 min now and then) doesn't blank the readings.
+        let magEnd = snapshot.latestMag?.time ?? now
+        let plasmaEnd = snapshot.latestPlasma?.time ?? now
         let bz = magFresh ? snapshot.latestMag?.bz : nil
-        let bzMean30 = magFresh ? SolarWind.recentMeanBz(snapshot.mag, minutes: 30, now: now) : nil
-        let speed = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.speed, minutes: 10, now: now) : nil
-        let density = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.density, minutes: 10, now: now) : nil
+        let bzMean30 = magFresh ? SolarWind.recentMeanBz(snapshot.mag, minutes: 30, now: magEnd) : nil
+        let speed = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.speed, minutes: 10, now: plasmaEnd) : nil
+        let density = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.density, minutes: 10, now: plasmaEnd) : nil
         var ey: Double?
-        let coupling = magFresh ? SolarWind.recentNewell(mag: snapshot.mag, plasma: snapshot.plasma, minutes: 30, now: now) : nil
+        let coupling = magFresh && plasmaFresh
+            ? SolarWind.recentNewell(mag: snapshot.mag, plasma: snapshot.plasma, minutes: 30, now: magEnd) : nil
         if let mean = bzMean30 {
             let v = speed ?? 400
             let field = SolarWind.electricField(speed: v, bz: mean)
@@ -174,7 +179,9 @@ public enum Outlook {
 
         // NOAA Geospace model: Kp predicted for the next hour.
         let predicted = snapshot.predictedKp.filter { $0.time > now && $0.time <= now.addingTimeInterval(75 * 60) }
-        let predictedKp = predicted.max(by: { $0.kp < $1.kp })
+        // Highest value in the next hour; on a tie, the latest time (so a flat forecast reads
+        // "by <end of the forecast>" instead of the current minute).
+        let predictedKp = predicted.max(by: { $0.kp < $1.kp || ($0.kp == $1.kp && $0.time < $1.time) })
         if let p = predictedKp {
             factors.append(.init(
                 name: "Predicted Kp \(String(format: "%.1f", p.kp)) by \(TimeText.time(p.time, location.timeZone))",
@@ -238,7 +245,7 @@ public enum Outlook {
             estimatedKp: kpNow, bz: bz, bzMean30: bzMean30, speed: speed, density: density,
             electricField: ey, coupling: coupling, predictedKp: predictedKp, hemiPower: hp, ovation: ovation,
             sunAltitude: sunAlt, isDark: sunAlt < darkness,
-            streak: magFresh ? SolarWind.bzStreak(snapshot.mag, threshold: -5, now: now) : nil,
+            streak: magFresh ? SolarWind.bzStreak(snapshot.mag, threshold: -5, now: magEnd) : nil,
             shock: shock,
             goesJump: goesJump,
             travelTime: SolarWind.currentTravelTime(snapshot: snapshot, now: now),
