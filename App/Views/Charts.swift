@@ -367,7 +367,7 @@ struct KpBarChart: View {
         .chartYScale(domain: 0...9)
         .chartYAxis { AxisMarks(values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day)) { value in
+            AxisMarks(values: localMidnights(from: points.first?.time ?? now, to: points.last?.end ?? now, tz: tz)) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let date = value.as(Date.self) { Text(TimeText.format(date, tz, "EEE")) }
@@ -377,6 +377,20 @@ struct KpBarChart: View {
         .chartScrub($selected, enabled: interactive)
         .frame(height: height)
     }
+}
+
+/// Midnights in the location's time zone (not the phone's), so day lines match the day labels.
+func localMidnights(from: Date, to: Date, tz: TimeZone) -> [Date] {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = tz
+    var day = cal.startOfDay(for: from)
+    var out: [Date] = []
+    while day <= to {
+        if day >= from { out.append(day) }
+        guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+        day = next
+    }
+    return out
 }
 
 /// Every time-series chart uses the same span ending at "now", so the same moment lines up
