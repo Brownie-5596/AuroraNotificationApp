@@ -62,7 +62,7 @@ struct SettingsView: View {
             Button("Send test notification") {
                 Task {
                     await Notifier.post(AuroraAlert(id: "test-\(Date().timeIntervalSince1970)", date: Date(), kind: .test,
-                                                    title: "🌌 Test alert", body: "Notifications are working. Clear skies!", priority: 3))
+                                                    title: "🌌 Test alert", body: "Notifications are working. Press and hold this to see the buttons. Clear skies!", priority: 3))
                 }
             }
             Button("Check conditions now") {

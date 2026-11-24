@@ -31,7 +31,8 @@ enum NotificationActions {
     /// forecast can turn into a reminder at dark.
     static func category(for kind: AlertKind) -> String? {
         switch kind {
-        case .bzSouth, .shock, .activity, .goes, .ground, .noaa: return realtimeCategory
+        // The test notification gets them too, so you can try the buttons.
+        case .bzSouth, .shock, .activity, .goes, .ground, .noaa, .test: return realtimeCategory
         case .forecastTonight: return tonightCategory
         default: return nil
         }
