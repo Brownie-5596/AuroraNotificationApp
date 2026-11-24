@@ -18,7 +18,7 @@ struct NowView: View {
                             if !nightWatchEnabled && !promptDismissed { nightWatchPrompt }
                             ChanceCard(nowcast: nowcast, location: model.location)
                             if let sky = model.tonightSky {
-                                TonightSkyCard(sky: sky, location: model.location).id("sky")
+                                TonightSkyCard(sky: sky, location: model.location, best: model.tonightPlan?.best).id("sky")
                             }
                             TilesGrid(snapshot: snapshot, nowcast: nowcast, location: model.location).id("tiles")
                             BzStreakCard(snapshot: snapshot, threshold: model.settings.bzThreshold, tz: model.location.timeZone)
@@ -294,6 +294,16 @@ struct TilesGrid: View {
                     StatTile(title: "X-ray", value: snapshot.latestXray.map { FlareClass.label(flux: $0.flux) } ?? "--", info: .xray)
                     StatTile(title: "OVATION", value: nowcast.ovation.map { "\($0.maxInView)" } ?? "--", unit: "%",
                              footnote: nowcast.ovation.map { "overhead \($0.overhead)%" }, info: .ovation)
+                    StatTile(title: "Next-hour Kp", value: nowcast.predictedKp.map { KpFormat.label($0.kp) } ?? "--",
+                             color: nowcast.predictedKp.map { Theme.kpColor($0.kp) } ?? .primary,
+                             footnote: nowcast.predictedKp.map { "by \(TimeText.time($0.time, location.timeZone))" }, info: .predictedKp)
+                    StatTile(title: "Coupling", value: couplingWord(nowcast.coupling),
+                             color: (nowcast.coupling ?? 0) >= 9600 ? Theme.aurora : .primary,
+                             footnote: nowcast.coupling.map { "Newell \(compactNumber($0))" }, info: .coupling)
+                    StatTile(title: "Oval edge", value: ovalEdge(nowcast.ovation),
+                             color: (nowcast.ovation?.edgeElevation ?? -1) >= 5 ? Theme.aurora : .primary,
+                             footnote: nowcast.ovation?.edgeElevation.map { $0 >= 90 ? "overhead" : ($0 > 0 ? "\(Int($0.rounded()))° above horizon" : "below horizon") },
+                             info: .ovalEdge)
                     StatTile(title: "Pressure",
                              value: (nowcast.speed.flatMap { v in nowcast.density.map { SolarWind.dynamicPressure(speed: v, density: $0) } }).f(),
                              unit: "nPa", info: .pressure)
@@ -303,6 +313,23 @@ struct TilesGrid: View {
             }
         }
     }
+}
+
+/// "Weak" / "Modest" / "Strong" / "Storm" for the Newell coupling.
+func couplingWord(_ value: Double?) -> String {
+    guard let v = value else { return "--" }
+    switch v / 24000 {
+    case 0.75...: return "Storm"
+    case 0.4...: return "Strong"
+    case 0.15...: return "Modest"
+    default: return "Weak"
+    }
+}
+
+/// Distance north to the auroral oval's 10% edge, e.g. "420 km".
+func ovalEdge(_ ovation: OvationLocal?) -> String {
+    guard let d = ovation?.edgeDistanceKm else { return ovation == nil ? "--" : "Far" }
+    return d <= 0 ? "Here" : "\(Int(d.rounded() / 10) * 10) km"
 }
 
 struct BzStreakCard: View {

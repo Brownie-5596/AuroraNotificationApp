@@ -10,29 +10,36 @@ public final class SpaceWeatherClient {
 
     public enum Feed: String, CaseIterable {
         case mag, wind, propagated, kp, kpForecast, kp1m, hemiPower, goesPrimary, goesSecondary, xray, flare
-        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds, wind7
+        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds, wind7, predictedKp
     }
 
     let session: URLSession
-    /// Optional NASA API key used as a fallback for DONKI (falls back to DEMO_KEY).
+    /// Short timeouts for the nice-to-have feeds (NASA CMEs, cloud cover) so a slow or hanging
+    /// server can never hold up the whole refresh.
+    let optionalSession: URLSession
+    /// Optional NASA API key for DONKI (falls back to DEMO_KEY).
     public var nasaAPIKey: String?
 
     /// - Parameter quick: short timeouts, for background refreshes where iOS allows only ~30 seconds.
     public init(session: URLSession? = nil, nasaAPIKey: String? = nil, quick: Bool = false) {
-        if let session {
-            self.session = session
-        } else {
+        func make(request: TimeInterval, resource: TimeInterval) -> URLSession {
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = quick ? 8 : 25
-            config.timeoutIntervalForResource = quick ? 15 : 40
+            config.timeoutIntervalForRequest = request
+            config.timeoutIntervalForResource = resource
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             config.httpAdditionalHeaders = ["User-Agent": "AuroraWatch/1.0 (personal aurora alerts)"]
-            self.session = URLSession(configuration: config)
+            return URLSession(configuration: config)
         }
+        self.session = session ?? (quick ? make(request: 8, resource: 15) : make(request: 15, resource: 30))
+        self.optionalSession = session ?? make(request: 8, resource: 8)
         self.nasaAPIKey = nasaAPIKey
     }
 
     public func data(_ url: URL) async throws -> Data {
+        try await data(url, session: session)
+    }
+
+    func data(_ url: URL, session: URLSession) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             let task = session.dataTask(with: url) { data, response, error in
                 if let error { continuation.resume(throwing: error); return }
@@ -60,6 +67,7 @@ public final class SpaceWeatherClient {
         async let kp = attempt { try FeedParser.kpObserved(try await self.data(self.swpc("/products/noaa-planetary-k-index.json"))) }
         async let kpForecast = attempt { try FeedParser.kpForecast(try await self.data(self.swpc("/products/noaa-planetary-k-index-forecast.json"))) }
         async let kp1m = attempt { try FeedParser.kp1m(try await self.data(self.swpc("/json/planetary_k_index_1m.json"))) }
+        async let predicted = attempt { try FeedParser.predictedKp(try await self.data(self.swpc("/json/geospace/geospace_pred_est_kp_1_hour.json"))) }
         async let hemi = attempt { FeedParser.hemiPower(String(decoding: try await self.data(self.swpc("/text/aurora-nowcast-hemi-power.txt")), as: UTF8.self)) }
         async let goes1 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/primary/magnetometers-1-day.json"))) }
         async let goes2 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/secondary/magnetometers-1-day.json"))) }
@@ -93,7 +101,8 @@ public final class SpaceWeatherClient {
 
         let reuseOutlook = previous.flatMap { p in p.outlookFetchedAt.map { now.timeIntervalSince($0) < 6 * 3600 && !p.outlook27.isEmpty } } ?? false
         let reuseCME = Self.skipCME(previous, now: now)
-        let reuseClouds = previous.flatMap { p in p.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 && !p.clouds.isEmpty } } ?? false
+        let sameLocation = previous?.location == location
+        let reuseClouds = sameLocation && (previous.flatMap { p in p.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 && !p.clouds.isEmpty } } ?? false)
 
         let previousOutlook = previous?.outlook27Raw ?? ""
         let previousCME = previous?.cmeArrivals ?? []
@@ -144,6 +153,8 @@ public final class SpaceWeatherClient {
         snap.kpForecast = take(await kpForecast, .kpForecast) ?? previous?.kpForecast ?? []
         // These feeds only cover the last few hours/days, so keep accumulating them.
         snap.kp1m = Self.merge(previous?.kp1m ?? [], take(await kp1m, .kp1m) ?? [], now: now, time: { $0.time })
+        snap.predictedKp = Self.merge(previous?.predictedKp ?? [], take(await predicted, .predictedKp) ?? [], now: now, time: { $0.time })
+        snap.location = location
         snap.hemiPower = Self.merge(previous?.hemiPower ?? [], take(await hemi, .hemiPower) ?? [], now: now, time: { $0.observed })
         snap.goesPrimary = Self.merge(goesWeek1 ?? previous?.goesPrimary ?? [], take(await goes1, .goesPrimary) ?? [], now: now, time: { $0.time })
         snap.goesSecondary = Self.merge(goesWeek2 ?? previous?.goesSecondary ?? [], take(await goes2, .goesSecondary) ?? [], now: now, time: { $0.time })
@@ -198,7 +209,9 @@ public final class SpaceWeatherClient {
     /// background checks. Live solar wind comes from NOAA's 1-hour propagated product and is merged
     /// into `previous`'s history; everything else not needed for alerts is carried over from `previous`.
     public func fetchAlertSnapshot(location: ObserverLocation, previous: SpaceWeatherSnapshot?, now: Date = Date()) async -> SpaceWeatherSnapshot {
+        let sameLocation = previous?.location == location
         var snap = previous ?? SpaceWeatherSnapshot(fetchedAt: now)
+        snap.location = location
         snap.fetchedAt = now
         snap.errors = [:]
 
@@ -206,6 +219,7 @@ public final class SpaceWeatherClient {
         async let kp = attempt { try FeedParser.kpObserved(try await self.data(self.swpc("/products/noaa-planetary-k-index.json"))) }
         async let kpForecast = attempt { try FeedParser.kpForecast(try await self.data(self.swpc("/products/noaa-planetary-k-index-forecast.json"))) }
         async let kp1m = attempt { try FeedParser.kp1m(try await self.data(self.swpc("/json/planetary_k_index_1m.json"))) }
+        async let predicted = attempt { try FeedParser.predictedKp(try await self.data(self.swpc("/json/geospace/geospace_pred_est_kp_1_hour.json"))) }
         async let hemi = attempt { FeedParser.hemiPower(String(decoding: try await self.data(self.swpc("/text/aurora-nowcast-hemi-power.txt")), as: UTF8.self)) }
         async let flare = attempt { try FeedParser.latestFlare(try await self.data(self.swpc("/json/goes/primary/xray-flares-latest.json"))) }
         async let alerts = attempt { try FeedParser.alerts(try await self.data(self.swpc("/products/alerts.json"))) }
@@ -214,7 +228,7 @@ public final class SpaceWeatherClient {
         async let goes2 = attempt { try FeedParser.goesMag(try await self.data(self.swpc("/json/goes/secondary/magnetometers-6-hour.json"))) }
 
         // The OVATION grid is ~900 KB and only updates every few minutes; refresh it at most every 15.
-        let ovationFresh = previous?.ovation?.observationTime.map { now.timeIntervalSince($0) < 15 * 60 } ?? false
+        let ovationFresh = sameLocation && (previous?.ovation?.observationTime.map { now.timeIntervalSince($0) < 15 * 60 } ?? false)
         let previousOvation = previous?.ovation
         async let ovation = attempt { () async throws -> OvationLocal? in
             if ovationFresh { return previousOvation }
@@ -225,7 +239,7 @@ public final class SpaceWeatherClient {
             if cmeFresh { return nil }
             return try await self.fetchCMEArrivals(now: now, allowFallback: false)
         }
-        let cloudsFresh = previous?.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 } ?? false
+        let cloudsFresh = sameLocation && (previous?.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 } ?? false)
         async let clouds = attempt { () async throws -> [CloudPoint]? in
             if cloudsFresh { return nil }
             return try await self.fetchClouds(location: location)
@@ -248,6 +262,7 @@ public final class SpaceWeatherClient {
         if let v = take(await kp, .kp) { snap.kpObserved = v }
         if let v = take(await kpForecast, .kpForecast) { snap.kpForecast = v }
         if let v = take(await kp1m, .kp1m) { snap.kp1m = Self.merge(snap.kp1m, v, now: now, time: { $0.time }) }
+        if let v = take(await predicted, .predictedKp) { snap.predictedKp = Self.merge(snap.predictedKp, v, now: now, time: { $0.time }) }
         if let v = take(await hemi, .hemiPower) { snap.hemiPower = Self.merge(snap.hemiPower, v, now: now, time: { $0.observed }) }
         if let v = take(await flare, .flare) { snap.latestFlare = v }
         if let v = take(await alerts, .alerts) { snap.alerts = v }
@@ -308,22 +323,24 @@ public final class SpaceWeatherClient {
     }
 
     /// WSA-ENLIL runs from NASA DONKI over the past 10 days that predict an Earth arrival.
+    /// api.nasa.gov answers in about a second; the CCMC server has been hanging for 10+ seconds,
+    /// so it's only the fallback. Both are capped at 8 seconds.
     public func fetchCMEArrivals(now: Date, allowFallback: Bool = true) async throws -> [CMEArrival] {
         let tz = TimeZone(identifier: "UTC")!
         let start = TimeText.format(now.addingTimeInterval(-10 * 86400), tz, "yyyy-MM-dd")
         let end = TimeText.format(now.addingTimeInterval(86400), tz, "yyyy-MM-dd")
-        let primary = URL(string: "https://kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)")!
+        let key = nasaAPIKey?.isEmpty == false ? nasaAPIKey! : "DEMO_KEY"
+        let primary = URL(string: "https://api.nasa.gov/DONKI/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)&api_key=\(key)")!
         do {
-            return try FeedParser.enlilArrivals(try await data(primary))
+            return try FeedParser.enlilArrivals(try await data(primary, session: optionalSession))
         } catch let primaryError {
             guard allowFallback else { throw primaryError }
-            let key = nasaAPIKey?.isEmpty == false ? nasaAPIKey! : "DEMO_KEY"
-            let fallback = URL(string: "https://api.nasa.gov/DONKI/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)&api_key=\(key)")!
+            let fallback = URL(string: "https://kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/WSAEnlilSimulations?startDate=\(start)&endDate=\(end)")!
             do {
-                return try FeedParser.enlilArrivals(try await data(fallback))
+                return try FeedParser.enlilArrivals(try await data(fallback, session: optionalSession))
             } catch {
                 throw URLError(.cannotConnectToHost, userInfo: [NSLocalizedDescriptionKey:
-                    "CCMC: \(describe(primaryError)); api.nasa.gov: \(describe(error))"])
+                    "api.nasa.gov: \(describe(primaryError)); CCMC: \(describe(error))"])
             }
         }
     }
@@ -337,7 +354,7 @@ public final class SpaceWeatherClient {
             .init(name: "timezone", value: "GMT"),
             .init(name: "forecast_days", value: "5"),
         ]
-        return try FeedParser.clouds(try await data(c.url!))
+        return try FeedParser.clouds(try await data(c.url!, session: optionalSession))
     }
 
     func attempt<T>(_ body: @escaping () async throws -> T) async -> Result<T, Error> {

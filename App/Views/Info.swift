@@ -241,7 +241,7 @@ extension ChartInfo {
     static let score = ChartInfo(
         id: "score", title: "Aurora chance score", icon: "gauge.with.dots.needle.67percent",
         summary: "The app's 0–100 summary of how likely aurora is right now.",
-        what: "A score the app builds from live data: Kp compared with what your location needs (up to 40 points), Ey coupling (25), hemispheric power (20) and OVATION probability north of you (15).",
+        what: "A score the app builds from live data: Kp compared with what your location needs (up to 40 points), solar wind coupling (Newell, 25), hemispheric power (20) and OVATION probability north of you (15). NOAA's next-hour Kp prediction, a shock at L1 or a GOES substorm signature can raise the level on top of the score.",
         read: "It's a rule of thumb, not an official forecast. A high Kp or a detected shock can raise the level even if the score is lower. Darkness, clouds and the moon aren't in the score but are shown next to it — you still need a dark, clear sky.",
         levels: [
             .init(range: "0–29", meaning: "Quiet", tone: .quiet),
@@ -307,6 +307,56 @@ extension ChartInfo {
         source: "Calculated on your device from your location (accurate to about a minute)."
     )
 
+    static let predictedKp = ChartInfo(
+        id: "predictedKp", title: "Next-hour Kp (NOAA Geospace)", icon: "clock.arrow.circlepath",
+        summary: "NOAA's physics model forecast of Kp for the next hour — an early warning before Kp itself rises.",
+        what: "NOAA runs a model of Earth's magnetosphere (the Geospace model) driven by the live solar wind measured at L1. Because that solar wind takes 30–60 minutes to reach Earth, the model can predict Kp about an hour ahead.",
+        read: "It tends to run a little low in quiet times, so when it predicts Kp 4 or more it's a strong sign activity is coming. The app treats a prediction at your horizon level (≈4 for Grand Forks) as \"activity building\" and at your overhead level as \"likely\".",
+        levels: [
+            .init(range: "Under 3", meaning: "Quiet hour ahead", tone: .quiet),
+            .init(range: "3–4", meaning: "Some activity — camera territory from Grand Forks", tone: .some),
+            .init(range: "4–5", meaning: "Aurora likely on the northern horizon soon", tone: .good),
+            .init(range: "5+", meaning: "Storm level — could be overhead", tone: .great),
+        ],
+        source: "NOAA SWPC Geospace model (predicted estimated Kp)."
+    )
+
+    static let coupling = ChartInfo(
+        id: "coupling", title: "Solar wind coupling (Newell)", icon: "bolt.horizontal.fill",
+        summary: "How strongly the solar wind is driving Earth's magnetosphere right now.",
+        what: "The Newell coupling function combines solar wind speed and the direction and strength of its magnetic field (both Bz and By) into one number. Research has found it to be the best single predictor of auroral power. The app uses its 30-minute average.",
+        read: "It's like Ey but more complete: a field pointing sideways (strong By, Bz near zero) still drives some aurora, and Newell counts that. The aurora chance score uses this for its \"solar wind\" points.",
+        levels: [
+            .init(range: "Under 3.6k", meaning: "Weak — little energy getting in", tone: .quiet),
+            .init(range: "3.6k–9.6k", meaning: "Modest", tone: .some),
+            .init(range: "9.6k–18k", meaning: "Strong — substorms likely", tone: .good),
+            .init(range: "18k+", meaning: "Storm-level driving", tone: .great),
+        ],
+        source: "Calculated by the app from NOAA real-time solar wind (Newell et al., 2007)."
+    )
+
+    static let ovalEdge = ChartInfo(
+        id: "ovalEdge", title: "Aurora oval edge", icon: "scope",
+        summary: "How far north the southern edge of the aurora is, and how high above your horizon it would appear.",
+        what: "From NOAA's OVATION aurora map, the app finds the southernmost point near your longitude with at least a 10% aurora probability — the edge of the auroral oval — and measures the distance from you.",
+        read: "Aurora glows about 100–300 km up, so you can see it well beyond the point directly overhead. Within about 600 km it sits more than ~8° above the northern horizon (easy to see from a dark spot); out to about 900 km it's very low (camera); farther than that it's below your horizon. \"Here\" means the edge has reached you — look up.",
+        levels: [
+            .init(range: "Over 1000 km", meaning: "Below your horizon", tone: .quiet),
+            .init(range: "600–1000 km", meaning: "Very low in the north — camera", tone: .some),
+            .init(range: "Under 600 km", meaning: "Visible above the northern horizon", tone: .good),
+            .init(range: "Here", meaning: "Overhead or south of you", tone: .great),
+        ],
+        source: "NOAA SWPC OVATION aurora forecast; geometry calculated by the app."
+    )
+
+    static let viewingPlan = ChartInfo(
+        id: "viewingPlan", title: "Tonight hour by hour", icon: "clock",
+        summary: "When tonight is best for looking: dark, clear, Moon down and the most aurora expected.",
+        what: "For each hour from sunset to sunrise the app combines how dark it is (twilight), cloud cover from Open-Meteo, whether the Moon is up (and how bright), and the Kp NOAA forecasts for that hour.",
+        read: "The bar is a 0–100 viewing quality. The highlighted rows are the best stretch still ahead. It's a planning guide — real aurora comes and goes in bursts, so the live alerts still matter.",
+        source: "NOAA Kp forecast, Open-Meteo clouds, Sun and Moon positions calculated on your device."
+    )
+
     struct Group: Identifiable {
         var title: String
         var items: [ChartInfo]
@@ -315,8 +365,8 @@ extension ChartInfo {
 
     static func all(for location: ObserverLocation) -> [Group] {
         [
-            Group(title: "Right now", items: [.score, kp(location), .kp1m, .ovation, .hemiPower, .twilight]),
-            Group(title: "Solar wind", items: [.bz, .bt, .bzStreak, .ey, .speed, .density, .pressure, .temperature, .bxby, .travelTime]),
+            Group(title: "Right now", items: [.score, kp(location), .kp1m, .predictedKp, .ovation, .ovalEdge, .hemiPower, .twilight, .viewingPlan]),
+            Group(title: "Solar wind", items: [.bz, .bt, .bzStreak, .coupling, .ey, .speed, .density, .pressure, .temperature, .bxby, .travelTime]),
             Group(title: "Earth & Sun", items: [.goes, .xray, .scales]),
             Group(title: "Forecasts", items: [.geomagProbs, .outlook27, .cme]),
         ]

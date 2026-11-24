@@ -167,6 +167,20 @@ public struct OvationLocal: Codable, Hashable {
     public var overhead: Int
     /// Highest probability (%) in the part of the sky visible from the observer (looking north).
     public var maxInView: Int
+    /// Southernmost latitude near the observer's longitude where OVATION gives ≥ 10% — the edge
+    /// of the auroral oval. Nil if the oval is beyond the searched range.
+    public var edgeLatitude: Double?
+    /// Ground distance north from the observer to that edge (km); negative when it's south of you.
+    public var edgeDistanceKm: Double?
+
+    /// How high above the northern horizon the oval's edge would appear (degrees), for aurora
+    /// whose lower border is ~110 km up. 90 when the edge is overhead or south of you.
+    public var edgeElevation: Double? {
+        guard let d = edgeDistanceKm else { return nil }
+        if d <= 0 { return 90 }
+        let h = 110.0, r = 6371.0
+        return atan2(h - d * d / (2 * r), d) * 180 / .pi
+    }
 }
 
 /// A free-text NOAA product (3-day forecast etc.) split into titled sections.
@@ -246,6 +260,10 @@ public struct SpaceWeatherSnapshot: Codable {
     public var kpObserved: [KpPoint] = []
     public var kpForecast: [KpPoint] = []
     public var kp1m: [EstimatedKp] = []
+    /// NOAA Geospace model Kp predicted ~1 hour ahead (time = when the prediction is for).
+    public var predictedKp: [EstimatedKp] = []
+    /// The location this snapshot was fetched for (OVATION and clouds depend on it).
+    public var location: ObserverLocation?
     public var hemiPower: [HemiPowerPoint] = []
     public var goesPrimary: [GoesMagSample] = []
     public var goesSecondary: [GoesMagSample] = []

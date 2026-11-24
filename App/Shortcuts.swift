@@ -11,7 +11,7 @@ struct CheckAuroraIntent: AppIntent {
     static var openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        await AlertRunner.run(reason: "shortcut", quick: true)
+        await AlertRunner.run(reason: "shortcut", quick: true, waitIfBusy: true)
         let summary = await MainActor.run { () -> String in
             guard let nowcast = AppModel.shared.nowcast else { return "Couldn't get space weather data." }
             var text = "\(nowcast.level.title): aurora chance \(nowcast.score)/100."

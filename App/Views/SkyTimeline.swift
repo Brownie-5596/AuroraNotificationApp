@@ -83,11 +83,17 @@ struct SkyTimeline: View {
 struct TonightSkyCard: View {
     var sky: NightSky
     var location: ObserverLocation
+    /// Best viewing stretch tonight, from the hour-by-hour plan.
+    var best: DateInterval?
 
     var body: some View {
         let lt = LocalTime(tz: location.timeZone)
         Card(title: "Sun & Moon tonight", systemImage: "sunset.fill", info: .twilight) {
             SkyTimeline(nightOf: sky.nightOf, location: location, illumination: sky.moonIllumination)
+            if let best {
+                Label("Best viewing tonight: \(lt.time(best.start)) – \(lt.time(best.end)) (darkest and clearest — see Forecast for hour by hour)", systemImage: "star.fill")
+                    .font(.caption).foregroundStyle(Theme.aurora)
+            }
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("EVENING").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)

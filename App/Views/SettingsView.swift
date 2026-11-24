@@ -69,7 +69,7 @@ struct SettingsView: View {
                 Task {
                     checkResult = "Checking…"
                     let before = model.history.count
-                    await AlertRunner.run(reason: "manual")
+                    await AlertRunner.run(reason: "manual", waitIfBusy: true)
                     let new = model.history.count - before
                     checkResult = new > 0 ? "Sent \(new) alert\(new == 1 ? "" : "s")" : "Nothing new to alert about right now"
                 }

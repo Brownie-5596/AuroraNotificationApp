@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var nowcast: Nowcast?
     @Published private(set) var nights: [NightOutlook] = []
     @Published private(set) var tonightSky: NightSky?
+    @Published private(set) var tonightPlan: ViewingPlan?
     @Published private(set) var history: [AuroraAlert] = []
     @Published private(set) var isRefreshing = false
     @Published var settings: AlertSettings {
@@ -20,6 +21,8 @@ final class AppModel: ObservableObject {
             guard settings != oldValue else { return }
             Store.shared.settings = settings
             recompute()
+            // The aurora map and cloud forecast depend on where you are: fetch them for the new place.
+            if settings.location != oldValue.location { Task { await refresh() } }
         }
     }
 
@@ -49,10 +52,20 @@ final class AppModel: ObservableObject {
     func refresh(full: Bool = true) async {
         guard !isRefreshing else { return }
         isRefreshing = true
+        defer { isRefreshing = false }
         let doFull = full || lastFullRefresh.map { Date().timeIntervalSince($0) > 10 * 60 } ?? true
-        await AlertRunner.run(reason: "app", quick: !doFull)
-        if doFull { lastFullRefresh = Date() }
-        isRefreshing = false
+        guard doFull else {
+            await AlertRunner.run(reason: "app", quick: true)
+            return
+        }
+        // If what's on screen is more than a couple of minutes old, fill it in with the small,
+        // fast update first (about a second), then do the full refresh for the charts.
+        if (snapshot?.fetchedAt).map({ Date().timeIntervalSince($0) > 120 }) ?? true {
+            await AlertRunner.run(reason: "app", quick: true, waitIfBusy: true)
+        }
+        if await AlertRunner.run(reason: "app", waitIfBusy: true) == .done {
+            lastFullRefresh = Date()
+        }
     }
 
     func apply(snapshot: SpaceWeatherSnapshot, state: AlertState) {
@@ -66,7 +79,9 @@ final class AppModel: ObservableObject {
         let now = Date()
         nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump, now: now)
         nights = Outlook.nights(snapshot: snapshot, location: settings.location, now: now)
-        tonightSky = Sky.nightSky(nightOf: Sky.currentNightOf(now: now, location: settings.location), location: settings.location)
+        let tonight = Sky.currentNightOf(now: now, location: settings.location)
+        tonightSky = Sky.nightSky(nightOf: tonight, location: settings.location)
+        tonightPlan = Outlook.viewingPlan(snapshot: snapshot, location: settings.location, nightOf: tonight, now: now)
     }
 
     func clearHistory() {

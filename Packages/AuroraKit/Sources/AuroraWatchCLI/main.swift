@@ -123,6 +123,9 @@ do {
     var keep = SpaceWeatherSnapshot(fetchedAt: snapshot.fetchedAt)
     keep.cmeArrivals = snapshot.cmeArrivals
     keep.cmeFetchedAt = snapshot.cmeFetchedAt
+    keep.cmeTriedAt = snapshot.cmeTriedAt
+    keep.cmeError = snapshot.cmeError
+    keep.location = snapshot.location
     keep.clouds = snapshot.clouds
     keep.cloudsFetchedAt = snapshot.cloudsFetchedAt
     keep.outlook27Raw = snapshot.outlook27Raw

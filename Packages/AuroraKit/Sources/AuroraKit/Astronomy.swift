@@ -109,11 +109,13 @@ public enum Sky {
     }
 
     /// Local calendar day whose evening began the night currently in progress (or the coming night, in daytime).
+    /// Uses the same −12° darkness as the night forecast, so in the half hour around dawn the
+    /// coming night is already "tonight" (not "tomorrow night").
     public static func currentNightOf(now: Date, location: ObserverLocation) -> Date {
         let cal = location.calendar
         let today = cal.startOfDay(for: now)
         if let yesterday = cal.date(byAdding: .day, value: -1, to: today),
-           let previous = darkWindow(nightOf: yesterday, location: location, sunAltitude: -6),
+           let previous = darkWindow(nightOf: yesterday, location: location, sunAltitude: -12),
            now < previous.end {
             return yesterday
         }

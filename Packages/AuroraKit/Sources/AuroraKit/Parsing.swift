@@ -210,6 +210,24 @@ public enum FeedParser {
         }.sorted { $0.time < $1.time }
     }
 
+    /// NOAA Geospace predicted Kp (`geospace_pred_est_kp_1_hour.json`). The file is occasionally
+    /// served while being rewritten (two arrays back to back), so fall back to the first array.
+    public static func predictedKp(_ data: Data) throws -> [EstimatedKp] {
+        var rows: [[String: Any]]
+        do {
+            rows = try JSONValue.rows(data)
+        } catch {
+            let text = String(decoding: data, as: UTF8.self)
+            guard let end = text.range(of: "}]") else { throw error }
+            rows = try JSONValue.rows(Data(text[..<end.upperBound].utf8))
+        }
+        return rows.compactMap { row in
+            guard let time = SWDate.parse(JSONValue.string(row["model_prediction_time"])),
+                  let k = JSONValue.double(row["k"]) else { return nil }
+            return EstimatedKp(time: time, kp: k)
+        }.sorted { $0.time < $1.time }
+    }
+
     public static func kp1m(_ data: Data) throws -> [EstimatedKp] {
         try JSONValue.rows(data).compactMap { row in
             guard let time = SWDate.parse(JSONValue.string(row["time_tag"])),
@@ -311,20 +329,26 @@ public enum FeedParser {
         let latRange = lat0...(lat0 + 6)
         var overhead = 0
         var maxInView = 0
+        // Strongest value at each latitude near our longitude, for finding the oval's edge.
+        var bandMax: [Int: Int] = [:]
         for case let point as [Any] in coords where point.count >= 3 {
             guard let lon = JSONValue.int(point[0]), let lat = JSONValue.int(point[1]) else { continue }
-            guard latRange.contains(lat) else { continue }
+            guard lat >= lat0 - 15 && lat <= lat0 + 30 else { continue }
             var dLon = abs(lon - lon0)
             if dLon > 180 { dLon = 360 - dLon }
-            guard dLon <= 6 else { continue }
             let value = JSONValue.int(point[2]) ?? 0
+            if dLon <= 3 { bandMax[lat] = max(bandMax[lat] ?? 0, value) }
+            guard latRange.contains(lat), dLon <= 6 else { continue }
             if lat == lat0 && lon == lon0 { overhead = value }
             maxInView = max(maxInView, value)
         }
+        let edge = bandMax.filter { $0.value >= 10 }.keys.min().map(Double.init)
         return OvationLocal(
             observationTime: SWDate.parse(JSONValue.string(root["Observation Time"])),
             forecastTime: SWDate.parse(JSONValue.string(root["Forecast Time"])),
-            overhead: overhead, maxInView: maxInView
+            overhead: overhead, maxInView: maxInView,
+            edgeLatitude: edge,
+            edgeDistanceKm: edge.map { ($0 - latitude) * 111.2 }
         )
     }
 
@@ -437,7 +461,9 @@ public enum FeedParser {
         for sim in sims {
             let inputs = sim["cmeInputs"] as? [[String: Any]] ?? []
             let input = inputs.first(where: { JSONValue.bool($0["isMostAccurate"]) == true }) ?? inputs.first ?? [:]
-            guard let cmeID = JSONValue.string(input["cmeid"]) ?? JSONValue.string(sim["simulationID"]) else { continue }
+            // DONKI often leaves cmeid empty; the launch time identifies the CME across model re-runs.
+            guard let cmeID = JSONValue.string(input["cmeid"]) ?? JSONValue.string(input["cmeStartTime"])
+                    ?? JSONValue.string(sim["simulationID"]) else { continue }
             let completion = SWDate.parse(JSONValue.string(sim["modelCompletionTime"])) ?? .distantPast
             if let existing = latest[cmeID], existing.completion > completion { continue }
             let kps = ["kp_90", "kp_135", "kp_180"].compactMap { JSONValue.double(sim[$0]) }

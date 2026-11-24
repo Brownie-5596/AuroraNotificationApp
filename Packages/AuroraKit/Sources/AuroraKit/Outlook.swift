@@ -38,6 +38,10 @@ public struct Nowcast: Codable, Hashable {
     public var speed: Double?
     public var density: Double?
     public var electricField: Double?
+    /// Newell coupling, 30-min mean ((km/s)^(4/3)·nT^(2/3)).
+    public var coupling: Double?
+    /// Highest NOAA Geospace predicted Kp in the next hour.
+    public var predictedKp: EstimatedKp?
     public var hemiPower: Double?
     public var ovation: OvationLocal?
     public var sunAltitude: Double
@@ -65,7 +69,7 @@ public enum Outlook {
     /// Combines the live data into a 0–100 score.
     ///
     /// * Estimated Kp vs. what this location needs — up to 40 points
-    /// * Merging electric field (speed × southward Bz, 30-min mean) — up to 25
+    /// * Solar wind coupling (Newell, 30-min mean; uses speed, Bz and By) — up to 25
     /// * OVATION hemispheric power — up to 20
     /// * OVATION probability in the northern sky — up to 15
     public static func nowcast(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, darkness: Double = -12, goesThreshold: Double = 20, now: Date) -> Nowcast {
@@ -99,19 +103,23 @@ public enum Outlook {
         let speed = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.speed, minutes: 10, now: now) : nil
         let density = plasmaFresh ? SolarWind.recentMean(snapshot.plasma, \.density, minutes: 10, now: now) : nil
         var ey: Double?
+        let coupling = magFresh ? SolarWind.recentNewell(mag: snapshot.mag, plasma: snapshot.plasma, minutes: 30, now: now) : nil
         if let mean = bzMean30 {
             let v = speed ?? 400
             let field = SolarWind.electricField(speed: v, bz: mean)
             ey = field
-            let part = clamp(field / 6) * 25
+            // Newell coupling also counts By, so a strong sideways field with Bz near zero still
+            // drives some aurora; fall back to Ey if plasma data is missing.
+            let strength = coupling.map { $0 / 24000 } ?? field / 6
+            let part = clamp(strength) * 25
             score += part
-            let direction = mean < 0 ? "southward" : "northward"
+            let word = strength >= 0.75 ? "storm-level" : (strength >= 0.4 ? "strong" : (strength >= 0.15 ? "modest" : "weak"))
             factors.append(.init(
                 name: "Bz \(String(format: "%+.1f", mean)) nT (30-min avg)",
                 detail: mean < 0
-                    ? "Field is \(direction) — energy is getting in (Ey \(String(format: "%.1f", field)) mV/m)"
-                    : "Field is \(direction) — the door is mostly closed",
-                effect: field >= 2 ? .positive : (mean < 0 ? .neutral : .negative),
+                    ? "Field is southward — \(word) coupling, energy is getting in (Ey \(String(format: "%.1f", field)) mV/m)"
+                    : (strength >= 0.15 ? "Field is mostly sideways — \(word) coupling" : "Field is northward — the door is mostly closed"),
+                effect: strength >= 0.3 ? .positive : (strength >= 0.1 ? .neutral : .negative),
                 points: Int(part.rounded())
             ))
         } else {
@@ -138,14 +146,42 @@ public enum Outlook {
             ))
         }
 
-        // OVATION
-        if let ov = snapshot.ovation {
+        // OVATION (ignore it if it's more than 2 hours old)
+        let ovation = snapshot.ovation.flatMap { ov in
+            (ov.forecastTime ?? ov.observationTime).map { abs(now.timeIntervalSince($0)) < 2 * 3600 } == false ? nil : ov
+        }
+        var ovationVisibility = Visibility.unlikely
+        if let ov = ovation {
             let part = clamp(Double(ov.maxInView) / 40) * 15
             score += part
+            var detail = "\(ov.overhead)% chance directly overhead"
+            if let d = ov.edgeDistanceKm, let elevation = ov.edgeElevation {
+                if d <= 0 {
+                    detail += "; the oval's edge is at or south of you"
+                } else if elevation > 0 {
+                    detail += "; oval edge ~\(Int(d.rounded() / 10) * 10) km north, ~\(Int(elevation.rounded()))° above the horizon"
+                } else {
+                    detail += "; oval edge ~\(Int(d.rounded() / 10) * 10) km north, below your horizon"
+                }
+                ovationVisibility = d <= 0 ? .overhead : (elevation >= 5 ? .horizon : (elevation >= 2 ? .cameraOnly : .unlikely))
+            }
             factors.append(.init(
                 name: "OVATION \(ov.maxInView)% in your northern sky",
-                detail: "\(ov.overhead)% chance directly overhead",
-                effect: ov.maxInView >= 20 ? .positive : .neutral, points: Int(part.rounded())
+                detail: detail,
+                effect: ov.maxInView >= 20 || ovationVisibility >= .horizon ? .positive : .neutral, points: Int(part.rounded())
+            ))
+        }
+
+        // NOAA Geospace model: Kp predicted for the next hour.
+        let predicted = snapshot.predictedKp.filter { $0.time > now && $0.time <= now.addingTimeInterval(75 * 60) }
+        let predictedKp = predicted.max(by: { $0.kp < $1.kp })
+        if let p = predictedKp {
+            factors.append(.init(
+                name: "Predicted Kp \(String(format: "%.1f", p.kp)) by \(TimeText.time(p.time, location.timeZone))",
+                detail: p.kp >= thresholds.horizon
+                    ? "NOAA's Geospace model expects activity to reach aurora level within the hour"
+                    : "NOAA's Geospace model forecast for the next hour (it tends to run a bit low)",
+                effect: p.kp >= thresholds.horizon ? .positive : .neutral, points: 0
             ))
         }
 
@@ -166,6 +202,10 @@ public enum Outlook {
             else if kp >= thresholds.horizon { level = max(level, .likely) }
         }
         if shock != nil { level = max(level, .possible) }
+        if let p = predictedKp {
+            if p.kp >= thresholds.overhead { level = max(level, .likely) }
+            else if p.kp >= thresholds.horizon { level = max(level, .possible) }
+        }
 
         // GOES: a sudden rise in the field = substorm (night side) or compression (day side).
         let goesJump = GoesWatch.detectJump(snapshot.goesPrimary + snapshot.goesSecondary, threshold: goesThreshold, now: now, lookback: 60)
@@ -194,9 +234,9 @@ public enum Outlook {
 
         return Nowcast(
             time: now, score: total, level: level, factors: factors,
-            visibility: thresholds.visibility(kp: kpNow ?? 0),
+            visibility: max(thresholds.visibility(kp: kpNow ?? 0), ovationVisibility),
             estimatedKp: kpNow, bz: bz, bzMean30: bzMean30, speed: speed, density: density,
-            electricField: ey, hemiPower: hp, ovation: snapshot.ovation,
+            electricField: ey, coupling: coupling, predictedKp: predictedKp, hemiPower: hp, ovation: ovation,
             sunAltitude: sunAlt, isDark: sunAlt < darkness,
             streak: magFresh ? SolarWind.bzStreak(snapshot.mag, threshold: -5, now: now) : nil,
             shock: shock,
@@ -323,5 +363,76 @@ extension Outlook {
             cmeArrivals: snapshot.cmeArrivals.filter { windowForCME.contains($0.arrival) },
             sky: sky
         )
+    }
+}
+
+// MARK: - Hour by hour
+
+/// One hour of a night: how dark, Kp expected, clouds and Moon, and how good it is for aurora.
+public struct ViewingHour: Codable, Hashable, Identifiable {
+    public var start: Date
+    public var twilight: Int        // Sky.Twilight raw value (0 = day … 4 = full darkness)
+    public var kp: Double?
+    public var cloudCover: Double?
+    public var moonUp: Bool
+    /// 0…100: darkness × clearness × moon × aurora potential.
+    public var score: Int
+    public var id: Date { start }
+}
+
+public struct ViewingPlan: Codable, Hashable {
+    public var hours: [ViewingHour]
+    /// The best stretch of the night (consecutive hours within 85% of the best score).
+    public var best: DateInterval?
+}
+
+extension Outlook {
+    /// Hour-by-hour viewing conditions from sunset to sunrise for the night of `nightOf`.
+    public static func viewingPlan(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, nightOf: Date, now: Date) -> ViewingPlan {
+        let sky = Sky.nightSky(nightOf: nightOf, location: location)
+        let cal = location.calendar
+        guard let sunset = sky.sunset, let sunrise = sky.sunrise else { return ViewingPlan(hours: [], best: nil) }
+        let thresholds = location.visibility
+        let illumination = sky.moonIllumination
+        // Whole hours from the hour of sunset to the hour of sunrise.
+        var t = cal.dateInterval(of: .hour, for: sunset)?.start ?? sunset
+        var hours: [ViewingHour] = []
+        while t < sunrise {
+            let mid = t.addingTimeInterval(1800)
+            let twilight = Sky.Twilight(sunAltitude: Sky.sunAltitude(at: mid, for: location))
+            let kp = snapshot.kpForecast.first { $0.time <= mid && mid < $0.end }?.kp
+                ?? snapshot.outlook27.first { $0.date <= mid && mid < $0.date.addingTimeInterval(86400) }.map { Double($0.kp) }
+            let cloud = cloudCover(at: mid, clouds: snapshot.clouds)
+            let moonUp = Sky.isMoonUp(at: mid, for: location)
+
+            let dark: Double
+            switch twilight {
+            case .day, .civil: dark = 0
+            case .nautical: dark = 0.6
+            case .astronomical: dark = 0.85
+            case .night: dark = 1
+            }
+            let clear = 1 - (cloud ?? 30) / 100
+            let moon = moonUp ? 1 - 0.5 * illumination : 1
+            // Aurora potential: 0 at the camera threshold, 1 at "overhead"; a floor keeps the
+            // darkest, clearest hours ranked even on quiet nights.
+            let potential = kp.map { clamp(($0 - thresholds.camera) / max(thresholds.overhead - thresholds.camera, 0.5)) } ?? 0
+            let score = 100 * dark * clear * moon * (0.3 + 0.7 * potential)
+            hours.append(ViewingHour(start: t, twilight: twilight.rawValue, kp: kp, cloudCover: cloud, moonUp: moonUp, score: Int(score.rounded())))
+            t = t.addingTimeInterval(3600)
+        }
+
+        // Best stretch: the run of hours around the top score that stay within 85% of it.
+        var best: DateInterval?
+        let upcoming = hours.filter { $0.start.addingTimeInterval(3600) > now }
+        if let top = upcoming.max(by: { $0.score < $1.score }), top.score > 0,
+           let i = hours.firstIndex(where: { $0.start == top.start }) {
+            var lo = i, hi = i
+            let floor = Double(top.score) * 0.85
+            while lo > 0, Double(hours[lo - 1].score) >= floor, hours[lo - 1].start.addingTimeInterval(3600) > now { lo -= 1 }
+            while hi < hours.count - 1, Double(hours[hi + 1].score) >= floor { hi += 1 }
+            best = DateInterval(start: max(hours[lo].start, now), end: hours[hi].start.addingTimeInterval(3600))
+        }
+        return ViewingPlan(hours: hours, best: best)
     }
 }

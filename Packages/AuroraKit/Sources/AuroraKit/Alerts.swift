@@ -231,6 +231,8 @@ public enum AlertEngine {
                                .forecastTomorrow: settings.tomorrowEnabled,
                                .forecastEarly: settings.earlyEnabled][stage] ?? true
                 guard enabled else { continue }
+                // Don't announce "tonight" when the night is basically over.
+                if stage == .forecastTonight, let dark = night.dark, dark.end.timeIntervalSince(now) < 3600 { continue }
                 let key = "\(stage.rawValue)-\(dayKey(night.nightOf, tz))"
                 // Re-alert only if the forecast is upgraded by a full Kp step.
                 if let rec = state.sent[key], night.maxKp < rec.value + 1 { continue }

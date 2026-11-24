@@ -88,7 +88,7 @@ enum BackgroundRefresh {
         schedule()
         let work = Task {
             let result = await AlertRunner.run(reason: reason, quick: true)
-            if !Task.isCancelled { task.setTaskCompleted(success: result) }
+            if !Task.isCancelled { task.setTaskCompleted(success: result != .failed) }
         }
         task.expirationHandler = {
             Store.shared.log("\(reason): iOS ended the check early")

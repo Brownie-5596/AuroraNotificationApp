@@ -545,4 +545,103 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(SpaceWeatherClient.skipCME(snap, now: t0.addingTimeInterval(2 * 3600)))
         XCTAssertFalse(snap.cmeUnavailable(now: t0.addingTimeInterval(3600)))
     }
+
+    func testNewellCoupling() {
+        XCTAssertEqual(SolarWind.newellCoupling(speed: 500, by: 0, bz: 5), 0, accuracy: 1)        // due north
+        // 500^(4/3) × 10^(2/3) ≈ 3969 × 4.64
+        XCTAssertEqual(SolarWind.newellCoupling(speed: 500, by: 0, bz: -10), 18_420, accuracy: 50)  // due south
+        let sideways = SolarWind.newellCoupling(speed: 500, by: 10, bz: 0)                          // pure By
+        XCTAssertEqual(sideways / SolarWind.newellCoupling(speed: 500, by: 0, bz: -10), 0.397, accuracy: 0.01)
+        // 30-minute mean uses each minute's field with the latest speed.
+        let m = mag(Array(repeating: -10.0, count: 40), end: t0)
+        let p = plasma(Array(repeating: 500.0, count: 40), end: t0)
+        XCTAssertEqual(SolarWind.recentNewell(mag: m, plasma: p, minutes: 30, now: t0) ?? 0, 18_420, accuracy: 50)
+    }
+
+    func testOvationEdgeDistance() throws {
+        // Synthetic grid: 20% from 52°N northward along Grand Forks' longitude.
+        var coords: [[Int]] = []
+        for lat in 30...80 { for lon in 255...270 { coords.append([lon, lat, lat >= 52 ? 20 : 2]) } }
+        let json = try JSONSerialization.data(withJSONObject: ["Observation Time": "2026-11-24T02:00:00Z", "Forecast Time": "2026-11-24T02:40:00Z", "coordinates": coords])
+        let gf = ObserverLocation.grandForks
+        let ov = try FeedParser.ovation(json, latitude: gf.latitude, longitude: gf.longitude)
+        XCTAssertEqual(ov.edgeLatitude, 52)
+        XCTAssertEqual(ov.edgeDistanceKm ?? 0, (52 - gf.latitude) * 111.2, accuracy: 1)
+        XCTAssertEqual(ov.edgeElevation ?? 0, 12, accuracy: 2)
+        // The real (quiet-day) fixture: the 10% line, if within the saved 40–70°N strip, is north of us.
+        let real = try FeedParser.ovation(try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "Fixtures/ovation.json", withExtension: nil))),
+                                          latitude: gf.latitude, longitude: gf.longitude)
+        if let edge = real.edgeLatitude { XCTAssertGreaterThan(edge, gf.latitude) }
+    }
+
+    func testPredictedKpParsesHalfWrittenFile() throws {
+        let one = #"[{"model_prediction_time": "2026-11-24T00:55:00Z", "k": 1.33}, {"model_prediction_time": "2026-11-24T00:56:00Z", "k": 4.67}]"#
+        XCTAssertEqual(try FeedParser.predictedKp(Data(one.utf8)).map(\.kp), [1.33, 4.67])
+        let doubled = one + #"[{"model_prediction_time": "2026-11-24T00:57:00Z", "k": 2.0}]"#
+        XCTAssertEqual(try FeedParser.predictedKp(Data(doubled.utf8)).count, 2)
+    }
+
+    func testPredictedKpRaisesLevel() {
+        let gf = ObserverLocation.grandForks
+        var snap = stormSnapshot(kp: 2, bz: 1, speed: 400)
+        XCTAssertEqual(Outlook.nowcast(snapshot: snap, location: gf, now: t0).level, .quiet)
+        snap.predictedKp = [EstimatedKp(time: t0.addingTimeInterval(40 * 60), kp: 4.67)]
+        let n = Outlook.nowcast(snapshot: snap, location: gf, now: t0)
+        XCTAssertEqual(n.level, .possible)
+        XCTAssertEqual(n.predictedKp?.kp, 4.67)
+    }
+
+    func testTonightRollsOverAtNauticalDawn() {
+        let gf = ObserverLocation.grandForks
+        let nov23 = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 23))!
+        let nov24 = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 24))!
+        let dawn = Sky.nightSky(nightOf: nov23, location: gf).nauticalDawn!
+        XCTAssertEqual(Sky.currentNightOf(now: dawn.addingTimeInterval(-600), location: gf), nov23)
+        XCTAssertEqual(Sky.currentNightOf(now: dawn.addingTimeInterval(600), location: gf), nov24)
+    }
+
+    func testNoTonightAlertJustBeforeDawn() {
+        var settings = AlertSettings()
+        settings.nowcastEnabled = false
+        settings.noaaEnabled = false
+        let gf = ObserverLocation.grandForks
+        let nov23 = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 23))!
+        let darkEnd = Sky.darkWindow(nightOf: nov23, location: gf)!.end
+        let now = darkEnd.addingTimeInterval(-20 * 60)
+        var snap = SpaceWeatherSnapshot(fetchedAt: now)
+        snap.kpForecast = stride(from: -12.0, to: 72, by: 3).map { h in
+            KpPoint(time: SWDate.utc(year: 2026, month: 11, day: 24).addingTimeInterval(h * 3600), kp: h < 15 ? 5.0 : 2.0, kind: .predicted)
+        }
+        var state = AlertState()
+        XCTAssertFalse(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: now).contains { $0.kind == .forecastTonight })
+    }
+
+    func testViewingPlanPicksDarkClearHours() throws {
+        let gf = ObserverLocation.grandForks
+        let night = gf.calendar.date(from: DateComponents(year: 2026, month: 11, day: 24))!
+        let noon = SWDate.utc(year: 2026, month: 11, day: 24, hour: 18)
+        var snap = SpaceWeatherSnapshot(fetchedAt: noon)
+        // Kp 5 all night; cloudy until 11 PM CST (05 UTC), clear after.
+        snap.kpForecast = stride(from: 0.0, to: 48, by: 3).map { KpPoint(time: SWDate.utc(year: 2026, month: 11, day: 24).addingTimeInterval($0 * 3600), kp: 5, kind: .predicted) }
+        snap.clouds = stride(from: 0.0, to: 48, by: 1).map { h in
+            CloudPoint(time: SWDate.utc(year: 2026, month: 11, day: 24).addingTimeInterval(h * 3600), total: h < 29 ? 95 : 5)
+        }
+        let plan = Outlook.viewingPlan(snapshot: snap, location: gf, nightOf: night, now: noon)
+        XCTAssertGreaterThan(plan.hours.count, 12)
+        XCTAssertTrue(plan.hours.first!.score == 0) // sunset hour: still light
+        let best = try XCTUnwrap(plan.best)
+        XCTAssertGreaterThanOrEqual(best.start, SWDate.utc(year: 2026, month: 11, day: 25, hour: 5))
+    }
+
+    func testEnlilRunsWithoutCMEIDAreGroupedByLaunchTime() throws {
+        let json = #"""
+        [{"simulationID": "WSA-ENLIL/1", "modelCompletionTime": "2026-11-15T14:05Z", "estimatedShockArrivalTime": "2026-11-18T07:00Z",
+          "cmeInputs": [{"cmeid": null, "cmeStartTime": "2026-11-14T22:15Z", "speed": 715, "isMostAccurate": true}]},
+         {"simulationID": "WSA-ENLIL/2", "modelCompletionTime": "2026-11-16T02:00Z", "estimatedShockArrivalTime": "2026-11-18T11:00Z",
+          "cmeInputs": [{"cmeid": null, "cmeStartTime": "2026-11-14T22:15Z", "speed": 690, "isMostAccurate": true}]}]
+        """#
+        let arrivals = try FeedParser.enlilArrivals(Data(json.utf8))
+        XCTAssertEqual(arrivals.count, 1)
+        XCTAssertEqual(arrivals.first?.arrival, SWDate.utc(year: 2026, month: 11, day: 18, hour: 11))
+    }
 }

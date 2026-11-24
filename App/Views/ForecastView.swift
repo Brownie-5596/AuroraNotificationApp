@@ -13,6 +13,9 @@ struct ForecastView: View {
                         if let snapshot = model.snapshot {
                             let tz = model.location.timeZone
                             nightsCard
+                            if let plan = model.tonightPlan, !plan.hours.isEmpty {
+                                ViewingPlanCard(plan: plan, location: model.location).id("plan")
+                            }
                             let kpInfo = ChartInfo.kp(model.location)
                             Card(title: "3-day Kp forecast (3-hour blocks)", systemImage: "chart.bar.xaxis", info: kpInfo) {
                                 ExpandableChart(info: kpInfo, range: nil) { _, expanded in
@@ -32,10 +35,12 @@ struct ForecastView: View {
                             cmeCard(snapshot).id("cme")
                             TransitCalculator(windSpeed: snapshot.latestPlasma?.speed ?? 400)
                             if !snapshot.outlook27.isEmpty { OutlookCard(days: snapshot.outlook27, thresholds: model.location.visibility, tz: tz) }
-                            if let product = snapshot.threeDayForecast { TextProductCard(product: product, icon: "doc.text") }
-                            if let product = snapshot.geomagForecast { TextProductCard(product: product, icon: "globe.americas") }
-                            if let raw = snapshot.outlook27Raw {
-                                TextProductCard(product: FeedParser.textProduct(raw), icon: "calendar")
+                            Group {
+                                if let product = snapshot.threeDayForecast { TextProductCard(product: product, icon: "doc.text") }
+                                if let product = snapshot.geomagForecast { TextProductCard(product: product, icon: "globe.americas") }
+                                if let raw = snapshot.outlook27Raw {
+                                    TextProductCard(product: FeedParser.textProduct(raw), icon: "calendar")
+                                }
                             }
                         } else {
                             ProgressView().padding(.top, 80)

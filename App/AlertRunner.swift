@@ -6,14 +6,19 @@ import UserNotifications
 enum AlertRunner {
     private static let gate = RunGate()
 
-    /// - Parameter quick: the small, fast refresh (~100 KB, short timeouts) used in the background,
-    ///   where iOS gives the app only ~30 seconds. The full refresh feeds the charts.
-    /// - Returns: false if the refresh failed outright.
-    @discardableResult
-    static func run(reason: String, quick: Bool = false) async -> Bool {
-        guard await gate.begin() else { return true }
-        defer { Task { await gate.end() } }
+    enum Outcome { case done, failed, skipped }
 
+    /// - Parameters:
+    ///   - quick: the small, fast refresh (~100 KB, short timeouts) used in the background,
+    ///     where iOS gives the app only ~30 seconds. The full refresh feeds the charts.
+    ///   - waitIfBusy: if another check is running, wait for it and then run (used when you're
+    ///     looking at the app); otherwise skip (background checks).
+    @discardableResult
+    static func run(reason: String, quick: Bool = false, waitIfBusy: Bool = false) async -> Outcome {
+        await gate.run(wait: waitIfBusy) { await perform(reason: reason, quick: quick) }
+    }
+
+    private static func perform(reason: String, quick: Bool) async -> Outcome {
         let store = Store.shared
         let settings = store.settings
         let client = SpaceWeatherClient(nasaAPIKey: store.nasaAPIKey, quick: quick)
@@ -21,18 +26,19 @@ enum AlertRunner {
         let snapshot = quick
             ? await client.fetchAlertSnapshot(location: settings.location, previous: previous)
             : await client.fetchSnapshot(location: settings.location, previous: previous)
-        if Task.isCancelled { return false }
+        if Task.isCancelled { return .failed }
         guard snapshot.latestMag != nil || !snapshot.kpForecast.isEmpty else {
             store.log("\(reason): refresh failed (\(snapshot.errors.keys.sorted().joined(separator: ", ")))")
-            return false
+            return .failed
         }
 
         // Notify first — saving the snapshot is the slow part and iOS may stop us at any moment.
+        // Save what was sent before posting, so a check that's cut short can't send it twice.
         var state = store.alertState
         let alerts = AlertEngine.evaluate(snapshot: snapshot, settings: settings, state: &state)
-        for alert in alerts { await Notifier.post(alert) }
         let plans = AlertEngine.plan(snapshot: snapshot, settings: settings, state: &state)
         store.alertState = state
+        for alert in alerts { await Notifier.post(alert) }
         await Notifier.schedule(plans)
 
         store.lastCheck = Date()
@@ -42,19 +48,25 @@ enum AlertRunner {
         store.saveSnapshot(snapshot)
         let finalState = state
         await MainActor.run { AppModel.shared.apply(snapshot: snapshot, state: finalState) }
-        return true
+        return .done
     }
 }
 
-/// Prevents overlapping runs (e.g. a background refresh firing while the foreground timer runs).
+/// Runs one check at a time (e.g. a background refresh firing while the app's own refresh runs).
 actor RunGate {
-    private var running = false
-    func begin() -> Bool {
-        if running { return false }
-        running = true
-        return true
+    private var current: Task<AlertRunner.Outcome, Never>?
+
+    func run(wait: Bool, _ work: @escaping @Sendable () async -> AlertRunner.Outcome) async -> AlertRunner.Outcome {
+        while let running = current {
+            guard wait else { return .skipped }
+            _ = await running.value
+        }
+        let task = Task { await work() }
+        current = task
+        let outcome = await task.value
+        current = nil
+        return outcome
     }
-    func end() { running = false }
 }
 
 enum Notifier {

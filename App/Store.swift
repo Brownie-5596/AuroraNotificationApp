@@ -50,6 +50,11 @@ final class Store {
         defaults.set(Array(entries.suffix(60)), forKey: "activityLog")
         // Also keep a plain-text copy (read by the UI smoke test; handy for debugging).
         if let line = "\(stamp) — \(message)\n".data(using: .utf8) {
+            // Keep the file small: when it passes 200 KB, keep the newest half.
+            if let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path))?[.size] as? Int, size > 200_000,
+               let old = try? Data(contentsOf: logURL) {
+                try? old.suffix(100_000).write(to: logURL, options: .atomic)
+            }
             if let handle = try? FileHandle(forWritingTo: logURL) {
                 handle.seekToEndOfFile()
                 handle.write(line)

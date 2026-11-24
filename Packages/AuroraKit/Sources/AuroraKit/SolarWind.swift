@@ -63,6 +63,39 @@ public enum SolarWind {
         speed * max(-bz, 0) / 1000
     }
 
+    /// Newell et al. (2007) coupling function dΦ/dt = v^(4/3) · Bt^(2/3) · sin^(8/3)(θ/2), where θ is
+    /// the IMF clock angle (0 = due north). It accounts for By as well as Bz and is the best single
+    /// predictor of auroral power. Units: (km/s)^(4/3)·nT^(2/3); roughly 5,000 is modest driving,
+    /// 15,000 strong and 25,000+ storm-level.
+    public static func newellCoupling(speed: Double, by: Double, bz: Double) -> Double {
+        let bt = (by * by + bz * bz).squareRoot()
+        guard bt > 0, speed > 0 else { return 0 }
+        let theta = atan2(abs(by), bz) // 0…π
+        return pow(speed, 4.0 / 3) * pow(bt, 2.0 / 3) * pow(sin(theta / 2), 8.0 / 3)
+    }
+
+    /// Mean Newell coupling over the last `minutes`, pairing each magnetometer minute with the
+    /// latest plasma speed.
+    public static func recentNewell(mag: [MagSample], plasma: [PlasmaSample], minutes: Double, now: Date) -> Double? {
+        let window = recent(mag, time: \.time, minutes: minutes, now: now)
+        guard window.count >= max(3, Int(minutes * 0.5)) else { return nil }
+        let speeds = recent(plasma, time: \.time, minutes: minutes + 10, now: now)
+        guard !speeds.isEmpty else { return nil }
+        var j = speeds.startIndex
+        var speed = speeds.first?.speed ?? 400
+        var values: [Double] = []
+        for m in window {
+            while j < speeds.endIndex && speeds[j].time <= m.time {
+                if let v = speeds[j].speed { speed = v }
+                j += 1
+            }
+            guard let bz = m.bz else { continue }
+            values.append(newellCoupling(speed: speed, by: m.by ?? 0, bz: bz))
+        }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
     /// Solar wind dynamic pressure (nPa).
     public static func dynamicPressure(speed: Double, density: Double) -> Double {
         1.6726e-6 * density * speed * speed

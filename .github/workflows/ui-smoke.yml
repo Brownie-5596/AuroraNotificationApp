@@ -80,6 +80,7 @@ jobs:
           shot now-bz-detail now "" 30 -openChart bz
           shot now-kp-detail now "" 30 -openChart kp
           shot forecast forecast "" 15
+          shot forecast-plan forecast plan 15
           shot forecast-probs forecast probs 15
           shot forecast-cme forecast cme 15
           shot sky sky "" 15
