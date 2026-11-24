@@ -161,6 +161,25 @@ extension ChartInfo {
         source: "NOAA SWPC OVATION aurora nowcast."
     )
 
+    static let ground = ChartInfo(
+        id: "ground", title: "Nearby magnetometer", icon: "location.north.line",
+        summary: "Earth's magnetic field measured on the ground near you — it swings when the aurora's currents are close.",
+        what: "The northward part of the magnetic field at the nearest observatory — Brandon, Manitoba, about 300 km from Grand Forks — shown as the change from its normal level (the middle value of the last day), in nT. One reading a minute, a couple of minutes behind real time.",
+        read: """
+        The aurora is driven by huge electric currents about 110 km up, the **auroral electrojet**. When they strengthen or move overhead, the field on the ground swings by **hundreds of nT** within minutes. On a quiet night the line stays within ±20 nT.
+        • A **sudden drop** (or jump) of 100+ nT within 15 minutes is a substorm near the station: the aurora brightens and starts dancing right away. The app alerts you (change the size in Settings).
+        • A big, lasting departure (300+ nT) means the electrojet is close. From Grand Forks the aurora should be up in the northern sky, possibly high.
+        Unlike the satellite data, this says the aurora is active **near you**, not just somewhere over the Arctic. Brandon is a little farther north, so a disturbance there usually means aurora on your northern horizon or higher.
+        """,
+        levels: [
+            .init(range: "Within ±50 nT", meaning: "Quiet", tone: .quiet),
+            .init(range: "50–150 nT", meaning: "Unsettled — some activity nearby", tone: .some),
+            .init(range: "150–300 nT", meaning: "Active — aurora likely in your northern sky", tone: .good),
+            .init(range: "300+ nT", meaning: "Storm — aurora close, possibly overhead", tone: .great),
+        ],
+        source: "Natural Resources Canada (Canadian Magnetic Observatory Network) or the USGS Geomagnetism Program, whichever observatory is nearest your location."
+    )
+
     static let goes = ChartInfo(
         id: "goes", title: "GOES magnetometers", icon: "dot.radiowaves.left.and.right",
         summary: "Earth's magnetic field measured by weather satellites — shows shocks and substorms as they happen.",
@@ -367,7 +386,7 @@ extension ChartInfo {
         [
             Group(title: "Right now", items: [.score, kp(location), .kp1m, .predictedKp, .ovation, .ovalEdge, .hemiPower, .twilight, .viewingPlan]),
             Group(title: "Solar wind", items: [.bz, .bt, .bzStreak, .coupling, .ey, .speed, .density, .pressure, .temperature, .bxby, .travelTime]),
-            Group(title: "Earth & Sun", items: [.goes, .xray, .scales]),
+            Group(title: "Earth & Sun", items: [.ground, .goes, .xray, .scales]),
             Group(title: "Forecasts", items: [.geomagProbs, .outlook27, .cme]),
         ]
     }

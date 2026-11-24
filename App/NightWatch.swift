@@ -43,11 +43,17 @@ final class NightWatch: ObservableObject {
     }
 
     var enabled: Bool { Store.shared.nightWatchEnabled }
+    /// "I'm heading out" is active: keep watching (every minute) even if Night Watch is off.
+    var outing: Bool { Store.shared.alertState.isOut(now: Date()) }
 
-    /// Starts if enabled and not already running. Safe to call repeatedly.
+    /// Starts if enabled (or you're out) and not already running. Safe to call repeatedly.
     func startIfEnabled() {
-        guard enabled, !isRunning else { return }
+        guard enabled || outing, !isRunning else { return }
         start()
+    }
+
+    func startForOuting() {
+        if isRunning { tick() } else { start() }
     }
 
     func start() {
@@ -91,6 +97,7 @@ final class NightWatch: ObservableObject {
         // `-nightWatchInterval 60` launch argument, used by the UI smoke test.
         let override = UserDefaults.standard.double(forKey: "nightWatchInterval")
         if override > 0 { return override }
+        if outing { return 60 }
         let location = Store.shared.settings.location
         let dark = Sky.sunAltitude(at: Date(), for: location) < -6
         return dark ? Self.nightInterval : Self.dayInterval
@@ -98,6 +105,11 @@ final class NightWatch: ObservableObject {
 
     private func tick() {
         guard isRunning else { return }
+        // Started just for an outing that has now ended.
+        if !enabled && !outing {
+            stop()
+            return
+        }
         if player?.isPlaying != true { resumeAudio() }
         // Time from when the last check *started*, so a slow check doesn't push the next one back.
         let last = max(lastStarted ?? .distantPast, Store.shared.lastCheck ?? .distantPast)
@@ -107,7 +119,7 @@ final class NightWatch: ObservableObject {
     }
 
     private func resumeAudio() {
-        guard isRunning || enabled else { return }
+        guard isRunning || enabled || outing else { return }
         do {
             try AVAudioSession.sharedInstance().setActive(true)
             if player == nil {

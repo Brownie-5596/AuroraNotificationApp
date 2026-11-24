@@ -267,6 +267,9 @@ public struct SpaceWeatherSnapshot: Codable {
     public var hemiPower: [HemiPowerPoint] = []
     public var goesPrimary: [GoesMagSample] = []
     public var goesSecondary: [GoesMagSample] = []
+    /// Nearest ground magnetometer and its one-minute northward (X) field.
+    public var groundStation: GroundStation?
+    public var groundMag: [GroundMagSample] = []
     public var xray: [XraySample] = []
     public var latestFlare: XrayFlare?
     public var alerts: [SWPCAlert] = []
@@ -321,6 +324,8 @@ public struct SpaceWeatherSnapshot: Codable {
         hemiPower = v(.hemiPower, [])
         goesPrimary = v(.goesPrimary, [])
         goesSecondary = v(.goesSecondary, [])
+        groundStation = v(.groundStation, nil)
+        groundMag = v(.groundMag, [])
         xray = v(.xray, [])
         latestFlare = v(.latestFlare, nil)
         alerts = v(.alerts, [])
@@ -347,6 +352,12 @@ public struct SpaceWeatherSnapshot: Codable {
     public var latestEstimatedKp: EstimatedKp? { kp1m.last }
     public var latestHemiPower: HemiPowerPoint? { hemiPower.last }
     public var latestXray: XraySample? { xray.last }
+
+    /// The nearest ground magnetometer's current reading (nil if there's no station nearby or
+    /// not enough data yet).
+    public func groundReading(now: Date) -> GroundReading? {
+        groundStation.flatMap { GroundWatch.reading(groundMag, station: $0, now: now) }
+    }
 
     /// Most recent observed/estimated 3-hour Kp.
     public var latestKp: KpPoint? {

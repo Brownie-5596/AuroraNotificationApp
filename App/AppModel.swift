@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var tonightPlan: ViewingPlan?
     @Published private(set) var history: [AuroraAlert] = []
     @Published private(set) var isRefreshing = false
+    /// Set while alerts are snoozed / while you're out ("I'm heading out").
+    @Published private(set) var snoozedUntil: Date?
+    @Published private(set) var outUntil: Date?
     @Published var settings: AlertSettings {
         didSet {
             guard settings != oldValue else { return }
@@ -39,8 +42,16 @@ final class AppModel: ObservableObject {
         case "settings": selectedTab = .settings
         default: break
         }
-        history = Store.shared.alertState.history.reversed()
+        let state = Store.shared.alertState
+        history = state.history.reversed()
+        updateOuting(from: state)
         recompute()
+    }
+
+    func updateOuting(from state: AlertState) {
+        let now = Date()
+        snoozedUntil = state.isSnoozed(now: now) ? state.snoozedUntil : nil
+        outUntil = state.isOut(now: now) ? state.outUntil : nil
     }
 
     var location: ObserverLocation { settings.location }
@@ -71,13 +82,15 @@ final class AppModel: ObservableObject {
     func apply(snapshot: SpaceWeatherSnapshot, state: AlertState) {
         self.snapshot = snapshot
         history = state.history.reversed()
+        updateOuting(from: state)
         recompute()
     }
 
     func recompute() {
         guard let snapshot else { return }
         let now = Date()
-        nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump, now: now)
+        nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump,
+                                  groundThreshold: settings.groundChange, now: now)
         nights = Outlook.nights(snapshot: snapshot, location: settings.location, now: now)
         let tonight = Sky.currentNightOf(now: now, location: settings.location)
         tonightSky = Sky.nightSky(nightOf: tonight, location: settings.location)

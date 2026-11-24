@@ -106,6 +106,25 @@ final class ParsingTests: XCTestCase {
         let clouds = try FeedParser.clouds(try fixture("clouds.json"))
         XCTAssertGreaterThan(clouds.count, 24)
     }
+
+    func testGroundMiniSEEDFromNRCan() throws {
+        // 20 minutes of Brandon's X component, as Natural Resources Canada's FDSN service sends it.
+        let samples = FeedParser.groundMiniSEED(try fixture("brd_ufx.mseed"))
+        XCTAssertEqual(samples.count, 20)
+        XCTAssertEqual(samples.first?.time, SWDate.utc(year: 2026, month: 11, day: 24, hour: 3, minute: 51))
+        for (a, b) in zip(samples, samples.dropFirst()) { XCTAssertEqual(b.time.timeIntervalSince(a.time), 60) }
+        for s in samples { XCTAssertEqual(s.x, 15460, accuracy: 100) }
+        // Garbage in: nothing out, no crash.
+        XCTAssertTrue(FeedParser.groundMiniSEED(Data(repeating: 0x41, count: 700)).isEmpty)
+        XCTAssertTrue(FeedParser.groundMiniSEED(Data()).isEmpty)
+    }
+
+    func testGroundUSGSJSON() throws {
+        let samples = try FeedParser.groundUSGS(try fixture("usgs_bou.json"))
+        XCTAssertGreaterThan(samples.count, 15)
+        XCTAssertEqual(samples.first?.time, SWDate.utc(year: 2026, month: 11, day: 24, hour: 3, minute: 51))
+        for s in samples { XCTAssertEqual(s.x, 20460, accuracy: 100) }
+    }
 }
 
 final class ScienceTests: XCTestCase {
@@ -691,5 +710,201 @@ final class AnalysisTests: XCTestCase {
         let noSpeed = [PlasmaSample(time: t0, speed: nil, density: 5, temperature: 1e5)]
         XCTAssertNil(SolarWind.recentNewell(mag: m, plasma: noSpeed, minutes: 30, now: t0))
         XCTAssertNotNil(SolarWind.recentNewell(mag: m, plasma: plasma([450], end: t0), minutes: 30, now: t0))
+    }
+
+    // MARK: Ground magnetometer
+
+    /// `hours` of quiet field ending at `end`, then optionally a drop of `drop` nT over `over` minutes
+    /// ending `agoMinutes` before `end`.
+    func ground(end: Date, hours: Double = 4, drop: Double = 0, over: Int = 10, agoMinutes: Int = 2) -> [GroundMagSample] {
+        let n = Int(hours * 60)
+        return (0..<n).map { i in
+            let minutesBeforeEnd = n - 1 - i
+            var x = 15460 + 3 * sin(Double(i) / 7)
+            let sinceStart = (agoMinutes + over) - minutesBeforeEnd
+            if drop != 0, sinceStart > 0 { x -= drop * min(Double(sinceStart) / Double(over), 1) }
+            return GroundMagSample(time: end.addingTimeInterval(-Double(minutesBeforeEnd) * 60), x: x)
+        }
+    }
+
+    func testNearestGroundStation() throws {
+        let gf = ObserverLocation.grandForks
+        let brd = try XCTUnwrap(GroundStation.nearest(to: gf))
+        XCTAssertEqual(brd.id, "BRD")
+        XCTAssertEqual(brd.distanceKm(to: gf), 300, accuracy: 40)
+        var denver = gf
+        denver.latitude = 39.74; denver.longitude = -104.99
+        XCTAssertEqual(GroundStation.nearest(to: denver)?.id, "BOU")
+        var pacific = gf
+        pacific.latitude = 20; pacific.longitude = -140
+        XCTAssertNil(GroundStation.nearest(to: pacific))
+    }
+
+    func testGroundReadingFindsSubstormDrop() throws {
+        let brd = GroundStation.all[0]
+        let quiet = try XCTUnwrap(GroundWatch.reading(ground(end: t0), station: brd, now: t0))
+        XCTAssertEqual(quiet.level, .quiet)
+        XCTAssertLessThan(abs(quiet.surge?.change ?? 0), 15)
+
+        let r = try XCTUnwrap(GroundWatch.reading(ground(end: t0, drop: 160, over: 10), station: brd, now: t0))
+        let surge = try XCTUnwrap(r.surge)
+        XCTAssertEqual(surge.change, -160, accuracy: 15)
+        XCTAssertLessThanOrEqual(surge.minutes, 15)
+        XCTAssertEqual(r.deviation, -160, accuracy: 15)
+        XCTAssertEqual(r.level, .active)
+        // Not enough history: no reading.
+        XCTAssertNil(GroundWatch.reading(ground(end: t0, hours: 1), station: brd, now: t0))
+    }
+
+    func testGroundSingleSpikeIgnored() throws {
+        var samples = ground(end: t0)
+        samples[samples.count - 5].x -= 400
+        let r = try XCTUnwrap(GroundWatch.reading(samples, station: GroundStation.all[0], now: t0))
+        XCTAssertLessThan(abs(r.surge?.change ?? 0), 15)
+        XCTAssertEqual(r.level, .quiet)
+    }
+
+    func testGroundSubstormAlert() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        var snap = stormSnapshot(kp: 2, bz: 1, speed: 400) // otherwise quiet
+        snap.groundStation = GroundStation.all[0]
+        snap.groundMag = ground(end: t0, drop: 150)
+        let n = Outlook.nowcast(snapshot: snap, location: .grandForks, now: t0)
+        XCTAssertGreaterThanOrEqual(n.level, .possible)
+        XCTAssertTrue(n.factors.contains { $0.name.contains("Brandon") })
+
+        var state = AlertState()
+        let alerts = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0)
+        XCTAssertEqual(alerts.map(\.kind), [.ground], "\(alerts.map(\.title))")
+        XCTAssertTrue(alerts[0].body.contains("dropped 1"))
+        // No repeat a few minutes later.
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0.addingTimeInterval(300)).isEmpty)
+        // Smaller than the setting: nothing.
+        settings.groundChange = 200
+        var fresh = AlertState()
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &fresh, now: t0).filter { $0.kind == .ground }.isEmpty)
+        // Stale data (an hour old): ignored.
+        var stale = AlertState()
+        settings.groundChange = 100
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &stale, now: t0.addingTimeInterval(3600)).filter { $0.kind == .ground }.isEmpty)
+    }
+
+    func testGroundStormLevelAlertsOnce() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        var snap = stormSnapshot(kp: 2, bz: 1, speed: 400)
+        snap.groundStation = GroundStation.all[0]
+        // A slow, deep bay: 350 nT over an hour — no 15-minute surge over 100, but storm level.
+        snap.groundMag = ground(end: t0, drop: 350, over: 60, agoMinutes: 0)
+        settings.groundChange = 150
+        let n = Outlook.nowcast(snapshot: snap, location: .grandForks, groundThreshold: 150, now: t0)
+        XCTAssertEqual(n.ground?.level, .storm)
+        XCTAssertGreaterThanOrEqual(n.level, .likely)
+        var state = AlertState()
+        let alerts = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0)
+        XCTAssertTrue(alerts.contains { $0.title.contains("Strong aurora currents") }, "\(alerts.map(\.title))")
+        let later = AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0.addingTimeInterval(600))
+        XCTAssertFalse(later.contains { $0.kind == .ground })
+    }
+
+    func testOldSnapshotWithoutGroundDataLoads() throws {
+        var snap = stormSnapshot(kp: 2, bz: 1, speed: 400)
+        snap.groundStation = GroundStation.all[0]
+        snap.groundMag = ground(end: t0)
+        let encoder = JSONEncoder()
+        let decoded = try JSONDecoder().decode(SpaceWeatherSnapshot.self, from: encoder.encode(snap))
+        XCTAssertEqual(decoded.groundMag.count, snap.groundMag.count)
+        XCTAssertEqual(decoded.groundStation?.id, "BRD")
+    }
+
+    // MARK: Snooze and "I'm heading out"
+
+    func testSnoozeSilencesRealtimeAlertsAndTonightsReminders() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        let snap = stormSnapshot(kp: 5, bz: -12, speed: 550)
+        var state = AlertState()
+        state.snooze(until: t0.addingTimeInterval(3600))
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: snap, settings: settings, state: &state, now: t0).isEmpty)
+        // After the snooze ends, alerts resume.
+        let after = AlertEngine.evaluate(snapshot: shifted(snap, by: 3700), settings: settings, state: &state, now: t0.addingTimeInterval(3700))
+        XCTAssertTrue(after.contains { $0.kind == .activity })
+
+        // Planned reminders that would go off during the snooze are dropped.
+        var plans = AlertState()
+        let tomorrowNoon = t0.addingTimeInterval(12 * 3600)
+        plans.snooze(until: tomorrowNoon)
+        var s2 = AlertSettings()
+        s2.forecastKp = 3
+        var forecast = stormSnapshot(kp: 2, bz: 1, speed: 400)
+        forecast.kpForecast = (0..<24).map { KpPoint(time: t0.addingTimeInterval(Double($0) * 3 * 3600), kp: 5, kind: .predicted) }
+        let planned = AlertEngine.plan(snapshot: forecast, settings: s2, state: &plans, now: t0)
+        XCTAssertTrue(planned.allSatisfy { $0.fireDate >= tomorrowNoon }, "\(planned.map(\.fireDate))")
+    }
+
+    func testHeadingOutOnlySendsNews() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        settings.cooldownHours = 1
+        var state = AlertState()
+        let active = stormSnapshot(kp: 5, bz: -12, speed: 550)
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: active, settings: settings, state: &state, now: t0).contains { $0.kind == .activity })
+        state.startOuting(now: t0.addingTimeInterval(60), until: t0.addingTimeInterval(3 * 3600))
+
+        // Two hours later, same conditions: normally a reminder after the 1 h cooldown — not while out.
+        let same = AlertEngine.evaluate(snapshot: shifted(active, by: 7200), settings: settings, state: &state, now: t0.addingTimeInterval(7200))
+        XCTAssertFalse(same.contains { $0.kind == .activity || $0.kind == .bzSouth }, "\(same.map(\.title))")
+
+        // It goes quiet: one "faded" message, once.
+        let quiet = shifted(stormSnapshot(kp: 1, bz: 3, speed: 350), by: 7800)
+        let faded = AlertEngine.evaluate(snapshot: quiet, settings: settings, state: &state, now: t0.addingTimeInterval(7800))
+        XCTAssertEqual(faded.map(\.title), ["🌙 Aurora activity has faded"])
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: quiet, settings: settings, state: &state, now: t0.addingTimeInterval(7900)).isEmpty)
+    }
+
+    func testNoFadedMessageIfNothingHappened() {
+        var settings = AlertSettings()
+        settings.noaaEnabled = false
+        settings.forecastEnabled = false
+        var state = AlertState()
+        state.startOuting(now: t0, until: t0.addingTimeInterval(3 * 3600))
+        let quiet = shifted(stormSnapshot(kp: 1, bz: 3, speed: 350), by: 3600)
+        XCTAssertTrue(AlertEngine.evaluate(snapshot: quiet, settings: settings, state: &state, now: t0.addingTimeInterval(3600)).isEmpty)
+    }
+
+    func testOutingTimes() {
+        let gf = ObserverLocation.grandForks
+        // 11 PM: snooze runs to nautical dawn (~6:20 AM CDT on Oct 20); an outing lasts 3 hours.
+        let end = Outing.endOfNight(location: gf, now: t0)
+        XCTAssertEqual(end.timeIntervalSince(t0) / 3600, 7.3, accuracy: 0.5)
+        XCTAssertEqual(Outing.outingEnd(location: gf, now: t0), t0.addingTimeInterval(3 * 3600))
+        // At 5:30 AM the outing stops at dawn.
+        let early = t0.addingTimeInterval(6.5 * 3600)
+        XCTAssertEqual(Outing.outingEnd(location: gf, now: early), end)
+    }
+
+    func testAlertStateKeepsSnoozeThroughSaveAndLoad() throws {
+        var state = AlertState()
+        state.snooze(until: t0)
+        let data = try JSONEncoder().encode(state)
+        let loaded = try JSONDecoder().decode(AlertState.self, from: data)
+        XCTAssertEqual(loaded.snoozedUntil, t0)
+        XCTAssertNil(loaded.outUntil)
+    }
+
+    /// Moves a snapshot's time series later by `seconds`, so it is "live" at a later `now`.
+    func shifted(_ snap: SpaceWeatherSnapshot, by seconds: TimeInterval) -> SpaceWeatherSnapshot {
+        var s = snap
+        s.fetchedAt = snap.fetchedAt.addingTimeInterval(seconds)
+        s.mag = snap.mag.map { var m = $0; m.time = m.time.addingTimeInterval(seconds); return m }
+        s.plasma = snap.plasma.map { var p = $0; p.time = p.time.addingTimeInterval(seconds); return p }
+        s.kp1m = snap.kp1m.map { EstimatedKp(time: $0.time.addingTimeInterval(seconds), kp: $0.kp) }
+        s.hemiPower = snap.hemiPower.map { var h = $0; h.observed = h.observed.addingTimeInterval(seconds); return h }
+        return s
     }
 }

@@ -17,6 +17,8 @@
   "shockEnabled": true,
   "goesEnabled": true,
   "goesJump": 20,
+  "groundEnabled": true,
+  "groundChange": 100,
   "activityEnabled": true,
   "minActivity": 1,
   "darknessGate": true,

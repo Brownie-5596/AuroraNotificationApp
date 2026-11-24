@@ -10,6 +10,7 @@ A sideloadable iOS app that tells you when there's a real chance of seeing the n
   - **Next-hour Kp** — NOAA's Geospace model forecast for the coming ~hour.
   - **Coupling** — the Newell coupling function (uses speed, Bz *and* By; the best single predictor of auroral power).
   - **Oval edge** — how far north of you the OVATION oval's edge is, and how high above your horizon that puts it.
+  - **Nearby magnetometer** — Earth's field on the ground at the nearest observatory (Brandon, MB for Grand Forks), as the change from normal. It swings by hundreds of nT when the aurora's electric currents are close, so it says the aurora is active *near you*, not just over the Arctic. Also a chart, and it feeds the aurora chance score.
 - **Bz streak card:** how long Bz has been south, the lowest and average value, total nT·min, time spent below your alert threshold, and the share of the last 3 h that was south.
 - **Time to Earth:** what L1 measures now reaches Earth in N minutes (from NOAA's propagated solar wind). Shock detection with an impact time. CME arrival countdowns.
 - Charts with 30M–24H ranges: Bz/Bt (south shaded red), Bx/By, speed, density, temperature, Ey, 7-day Kp with forecast, hemispheric power, 1-min Kp, GOES magnetometers, GOES X-ray.
@@ -38,10 +39,13 @@ A sideloadable iOS app that tells you when there's a real chance of seeing the n
 | ☀️ CME heading for Earth | NASA's ENLIL model predicts an Earth impact; a second alert when arrival is < 8 h away | on |
 | ⚡ Shock at L1 | Solar wind speed jumps ≥ 60 km/s with compressed density/field — includes time to Earth | on |
 | 🌌 / ⚡ GOES jump | A GOES satellite's field rises suddenly — a substorm (night side, aurora brightening now) or a compression (day side) | +20 nT in 10 min |
+| 🌌 Substorm near you | The nearest ground magnetometer swings suddenly (a substorm close by), or sits 300+ nT from normal (the auroral electrojet is close) | 100 nT in 15 min |
 | 🧲 Heads up: Bz south | Bz averages ≤ your limit for your chosen minutes | −7 nT for 15 min |
 | 👀 / 🌌 / 🚨 Activity | Aurora chance reaches Possible / Likely / Strong | Possible |
 | ☀️ Big flare | X-ray flare at or above a class | X1 |
 | NOAA relay | NOAA K-index warnings/alerts, G watches, sudden impulses | K ≥ 5 |
+
+**Notification buttons** (press and hold an alert): **I'm heading out** — for 3 hours (or until dawn) the app checks every minute and only tells you what changes: stronger activity, a substorm, or that it has faded. **Snooze 1 hour** / **Snooze tonight** — no real-time alerts until then. Tonight's forecast alert has **Remind me when it's dark**. The same choices are in the 🚶 menu on the Now tab. (These are for the app's own notifications; ntfy pushes from the GitHub watcher don't have them.)
 
 Forecast alerts re-fire only if the forecast is upgraded by a full Kp. Real-time alerts are only sent when it's dark (sun below −6° by default), repeat at most every 3 h unless conditions get stronger, and can be muted with quiet hours or when it's overcast.
 
@@ -103,6 +107,7 @@ Packages/AuroraKit/       Shared engine — runs on iOS and Linux
     SpaceWeatherClient    downloads ~20 NOAA/NASA/Open-Meteo feeds
     Parsing               lenient parsers for every feed
     SolarWind             Bz streaks, Ey, shock detection, L1→Earth travel time
+    Ground                nearest ground magnetometer: miniSEED/USGS parsers, substorm detection
     Outlook               aurora chance score + night-by-night forecast
     Alerts                the alert rules, de-duplication and settings
     Astronomy             sun altitude / darkness, moon, geomagnetic latitude
@@ -117,4 +122,4 @@ CI: **Build IPA** (Linux engine tests + unsigned IPA + release), **UI smoke test
 Run the engine tests on any machine with Swift: `swift test --package-path Packages/AuroraKit`.
 Try the watcher locally without sending anything: `swift run --package-path Packages/AuroraKit aurora-watch --dry-run`.
 
-**Data sources:** NOAA Space Weather Prediction Center (real-time solar wind, Kp, forecasts, OVATION, alerts, imagery), NASA CCMC DONKI (WSA-ENLIL CME runs), Open-Meteo (clouds). Not an official forecast — the sky gets the final say.
+**Data sources:** NOAA Space Weather Prediction Center (real-time solar wind, Kp, forecasts, OVATION, alerts, imagery), NASA CCMC DONKI (WSA-ENLIL CME runs), Natural Resources Canada and the USGS Geomagnetism Program (ground magnetometers), Open-Meteo (clouds). Not an official forecast — the sky gets the final say.

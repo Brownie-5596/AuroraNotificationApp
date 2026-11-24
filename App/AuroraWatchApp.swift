@@ -34,10 +34,15 @@ struct AuroraWatchApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        NotificationActions.register()
         BackgroundRefresh.register()
         BackgroundRefresh.schedule()
         // If iOS relaunched us in the background (e.g. for a refresh), try to resume Night Watch.
         Task { @MainActor in NightWatch.shared.startIfEnabled() }
+        // `-headOut YES` launch argument, used by the UI smoke test to show the "you're out" banner.
+        if UserDefaults.standard.bool(forKey: "headOut") {
+            Task { @MainActor in OutingControl.headOut() }
+        }
         return true
     }
 
@@ -47,7 +52,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        await MainActor.run { AppModel.shared.selectedTab = .now }
+        let action = response.actionIdentifier
+        await NotificationActions.handle(action)
+        if action == UNNotificationDefaultActionIdentifier {
+            await MainActor.run { AppModel.shared.selectedTab = .now }
+        }
     }
 }
 

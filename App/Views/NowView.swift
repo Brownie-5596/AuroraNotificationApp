@@ -15,6 +15,7 @@ struct NowView: View {
                     VStack(spacing: 14) {
                         if let snapshot = model.snapshot, let nowcast = model.nowcast {
                             header(snapshot)
+                            OutingBanner()
                             if !nightWatchEnabled && !promptDismissed { nightWatchPrompt }
                             ChanceCard(nowcast: nowcast, location: model.location)
                             if let sky = model.tonightSky {
@@ -41,7 +42,12 @@ struct NowView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if model.isRefreshing { ProgressView() }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) { GlossaryButton(location: model.location) }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 14) {
+                        OutingMenu()
+                        GlossaryButton(location: model.location)
+                    }
+                }
             }
             .screenBackground()
         }
@@ -173,6 +179,10 @@ struct NowView: View {
                 SeriesChart(title: "Estimated Kp (1-min)", unit: "", points: kp1m, color: .orange, range: r,
                             height: big ? 300 : 100, tz: tz, info: .kp1m, interactive: big)
             }
+        }
+        if let station = snapshot.groundStation {
+            GroundCard(snapshot: snapshot, station: station, location: model.location, threshold: model.settings.groundChange)
+                .id("ground")
         }
         Card(title: "GOES magnetometers", systemImage: "dot.radiowaves.left.and.right") {
             ExpandableChart(info: .goes, range: .h24) { r, big in
@@ -309,6 +319,10 @@ struct TilesGrid: View {
                              unit: "nPa", info: .pressure)
                     StatTile(title: "Bz south", value: nowcast.streak.map { $0.isSouth ? TimeText.duration($0.duration) : "0 min" } ?? "--",
                              color: (nowcast.streak?.isSouth ?? false) ? Theme.south : .primary, info: .bzStreak)
+                    StatTile(title: snapshot.groundStation.map { "\($0.name.components(separatedBy: ",")[0]) mag" } ?? "Ground mag",
+                             value: nowcast.ground.map { String(format: "%+.0f", $0.deviation) } ?? "--", unit: "nT",
+                             color: nowcast.ground.map { Theme.groundColor($0.level) } ?? .primary,
+                             footnote: nowcast.ground.map { $0.level.title }, info: .ground)
                 }
             }
         }

@@ -86,6 +86,10 @@ jobs:
           shot sky sky "" 15
           shot alerts alerts "" 10
           shot settings settings "" 10
+          shot now-ground now ground 20
+          shot now-ground-detail now "" 25 -openChart ground
+          # Last, because "I'm heading out" stays on for the following launches.
+          shot now-out now "" 20 -headOut YES
           ls -la shots
 
       - name: Night Watch keeps checking in the background

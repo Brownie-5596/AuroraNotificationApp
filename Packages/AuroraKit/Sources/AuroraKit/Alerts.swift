@@ -3,14 +3,14 @@ import Foundation
 public enum AlertKind: String, Codable, CaseIterable {
     case forecastEarly, forecastTomorrow, forecastTonight
     case cmeArrival, cmeSoon
-    case bzSouth, shock, activity, goes
+    case bzSouth, shock, activity, goes, ground
     case flare, noaa, test
 
     public var group: String {
         switch self {
         case .forecastEarly, .forecastTomorrow, .forecastTonight: return "forecast"
         case .cmeArrival, .cmeSoon: return "cme"
-        case .bzSouth, .shock, .activity, .goes: return "now"
+        case .bzSouth, .shock, .activity, .goes, .ground: return "now"
         case .flare: return "sun"
         case .noaa: return "noaa"
         case .test: return "test"
@@ -57,6 +57,10 @@ public struct AlertSettings: Codable, Hashable {
     /// Alert when a GOES satellite's field jumps by at least `goesJump` nT within 10 minutes.
     public var goesEnabled = true
     public var goesJump = 20.0
+    /// Alert when the nearest ground magnetometer's field changes by at least `groundChange` nT
+    /// within 15 minutes (a substorm nearby), or swings 300+ nT from normal.
+    public var groundEnabled = true
+    public var groundChange = 100.0
     public var activityEnabled = true
     public var minActivity: ActivityLevel = .possible
     /// Only send real-time alerts when the sun is below this altitude (°). −6 = end of civil twilight.
@@ -100,6 +104,8 @@ public struct AlertSettings: Codable, Hashable {
         shockEnabled = v(.shockEnabled, d.shockEnabled)
         goesEnabled = v(.goesEnabled, d.goesEnabled)
         goesJump = v(.goesJump, d.goesJump)
+        groundEnabled = v(.groundEnabled, d.groundEnabled)
+        groundChange = v(.groundChange, d.groundChange)
         activityEnabled = v(.activityEnabled, d.activityEnabled)
         minActivity = v(.minActivity, d.minActivity)
         darknessGate = v(.darknessGate, d.darknessGate)
@@ -131,8 +137,36 @@ public struct AlertState: Codable {
     public var initialized = false
     /// Notifications handed to iOS to go off later (see `AlertEngine.plan`), by key.
     public var planned: [String: PlannedAlert] = [:]
+    /// "Snooze": no real-time alerts (or tonight's forecast reminder) until then.
+    public var snoozedUntil: Date?
+    /// "I'm heading out": while you're outside, alerts only say what changed — stronger activity,
+    /// a substorm, or that it has faded — instead of repeating what you already know.
+    public var outSince: Date?
+    public var outUntil: Date?
 
     public init() {}
+
+    public func isSnoozed(now: Date) -> Bool { snoozedUntil.map { now < $0 } ?? false }
+    public func isOut(now: Date) -> Bool { outUntil.map { now < $0 } ?? false }
+
+    public mutating func snooze(until: Date) {
+        snoozedUntil = until
+        outSince = nil
+        outUntil = nil
+    }
+
+    public mutating func startOuting(now: Date, until: Date) {
+        outSince = now
+        outUntil = until
+        snoozedUntil = nil
+    }
+
+    /// Back to normal alerts.
+    public mutating func resume() {
+        snoozedUntil = nil
+        outSince = nil
+        outUntil = nil
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -141,6 +175,9 @@ public struct AlertState: Codable {
         history = (try? c.decodeIfPresent([AuroraAlert].self, forKey: .history)) ?? []
         initialized = (try? c.decodeIfPresent(Bool.self, forKey: .initialized)) ?? false
         planned = (try? c.decodeIfPresent([String: PlannedAlert].self, forKey: .planned)) ?? [:]
+        snoozedUntil = try? c.decodeIfPresent(Date.self, forKey: .snoozedUntil)
+        outSince = try? c.decodeIfPresent(Date.self, forKey: .outSince)
+        outUntil = try? c.decodeIfPresent(Date.self, forKey: .outUntil)
     }
 
     /// Planned notifications whose time has passed have been shown by iOS — count them as sent.
@@ -210,7 +247,10 @@ public enum AlertEngine {
         var alerts: [AuroraAlert] = []
         state.absorbFiredPlans(now: now)
         let firstRun = !state.initialized
-        let nowcast = Outlook.nowcast(snapshot: snapshot, location: loc, goesThreshold: settings.goesJump, now: now)
+        let nowcast = Outlook.nowcast(snapshot: snapshot, location: loc, goesThreshold: settings.goesJump,
+                                      groundThreshold: settings.groundChange, now: now)
+        let snoozed = state.isSnoozed(now: now)
+        let out = state.isOut(now: now)
         let nights = Outlook.nights(snapshot: snapshot, location: loc, now: now)
 
         func cloudNote(_ cover: Double?) -> String {
@@ -231,8 +271,9 @@ public enum AlertEngine {
                                .forecastTomorrow: settings.tomorrowEnabled,
                                .forecastEarly: settings.earlyEnabled][stage] ?? true
                 guard enabled else { continue }
-                // Don't announce "tonight" when the night is basically over.
+                // Don't announce "tonight" when the night is basically over, or you snoozed it.
                 if stage == .forecastTonight, let dark = night.dark, dark.end.timeIntervalSince(now) < 3600 { continue }
+                if stage == .forecastTonight && snoozed { continue }
                 let key = "\(stage.rawValue)-\(dayKey(night.nightOf, tz))"
                 // Re-alert only if the forecast is upgraded by a full Kp step.
                 if let rec = state.sent[key], night.maxKp < rec.value + 1 { continue }
@@ -270,7 +311,7 @@ public enum AlertEngine {
         let cloudy = settings.skipWhenCloudy && (nowcast.cloudCover ?? 0) >= settings.cloudLimit
         let cooldown = settings.cooldownHours * 3600
 
-        if settings.nowcastEnabled && !quiet && !cloudy {
+        if settings.nowcastEnabled && !quiet && !cloudy && !snoozed {
             // Shock at L1: arrives within the hour — useful even at dusk.
             if settings.shockEnabled, let shock = nowcast.shock, now.timeIntervalSince(shock.time) < 60 * 60,
                nowcast.sunAltitude < 0 || !settings.darknessGate {
@@ -293,7 +334,9 @@ public enum AlertEngine {
             if settings.goesEnabled, let jump = nowcast.goesJump, now.timeIntervalSince(jump.time) < 30 * 60,
                jump.nightSide ? darkEnough : (nowcast.sunAltitude < 0 || !settings.darknessGate) {
                 let key = "goes-\(Int(jump.time.timeIntervalSince1970 / 900))"
-                if state.sent[key] == nil && !recentlySent(state, prefix: "goes-", within: 45 * 60, now: now) {
+                // A ground-magnetometer substorm alert just now already said "look north".
+                let groundJustSaidIt = jump.nightSide && recentlySent(state, prefix: "ground-", within: 30 * 60, now: now)
+                if state.sent[key] == nil && !recentlySent(state, prefix: "goes-", within: 45 * 60, now: now) && !groundJustSaidIt {
                     let when = TimeText.time(jump.time, tz)
                     let title: String
                     var body: String
@@ -313,12 +356,47 @@ public enum AlertEngine {
                 }
             }
 
+            // Nearest ground magnetometer: a sudden swing = a substorm nearby; a big departure from
+            // normal = the auroral electrojet (and so the aurora) is close.
+            if settings.groundEnabled, darkEnough, let g = nowcast.ground {
+                let name = g.station.name
+                let km = Int((g.station.distanceKm(to: loc) / 10).rounded()) * 10
+                var sentSurge = false
+                if let surge = g.surge, abs(surge.change) >= settings.groundChange, now.timeIntervalSince(surge.time) < 30 * 60 {
+                    let key = "ground-\(Int(surge.time.timeIntervalSince1970 / 900))"
+                    // If GOES already announced this substorm, only follow up for a big local swing.
+                    let goesJustSaidIt = recentlySent(state, prefix: "goes-", within: 20 * 60, now: now)
+                        && abs(surge.change) < 2 * settings.groundChange
+                    if state.sent[key] == nil && !recentlySent(state, prefix: "ground-", within: 45 * 60, now: now) && !goesJustSaidIt {
+                        var body = "The magnetic field at \(name) (\(km) km from you) \(surge.change < 0 ? "dropped" : "jumped") \(Int(abs(surge.change))) nT in \(surge.minutes) min at \(TimeText.time(surge.time, tz)) — the aurora's electric currents just surged nearby. Aurora often brightens and starts moving within minutes: look north now."
+                        if let kp = nowcast.estimatedKp { body += " Kp ≈ \(String(format: "%.1f", kp))." }
+                        body += cloudNote(nowcast.cloudCover)
+                        alerts.append(AuroraAlert(id: key, date: now, kind: .ground, title: "🌌 Substorm near \(name)", body: body,
+                                                  priority: 4, tags: ["compass"]))
+                        state.sent[key] = .init(date: now, value: abs(surge.change))
+                        sentSurge = true
+                    }
+                }
+                if g.level >= .storm {
+                    let rec = state.sent["groundstorm"]
+                    let fresh = rec == nil || g.disturbance >= rec!.value + 200 || (!out && now.timeIntervalSince(rec!.date) > cooldown)
+                    if fresh && !sentSurge {
+                        var body = "The field at \(name) (\(km) km from you) is \(String(format: "%+.0f", g.deviation)) nT from normal, with a \(Int(g.range60)) nT swing in the last hour — the auroral electrojet is close. Look north; the aurora may be high in the sky."
+                        body += cloudNote(nowcast.cloudCover)
+                        alerts.append(AuroraAlert(id: "groundstorm-\(Int(now.timeIntervalSince1970))", date: now, kind: .ground,
+                                                  title: "🌌 Strong aurora currents near \(name)", body: body, priority: 4, tags: ["compass"]))
+                    }
+                    if fresh || sentSurge { state.sent["groundstorm"] = .init(date: now, value: g.disturbance) }
+                }
+            }
+
             if darkEnough {
                 // Sustained southward Bz.
                 let sustained = SolarWind.isSustainedSouth(snapshot.mag, threshold: settings.bzThreshold, minutes: settings.bzMinutes, now: now)
                 if sustained.0, let mean = sustained.mean {
                     let rec = state.sent["bz"]
-                    let fresh = rec == nil || now.timeIntervalSince(rec!.date) > cooldown || mean <= rec!.value - 5
+                    // While you're out, only a deeper dip is news.
+                    let fresh = rec == nil || (!out && now.timeIntervalSince(rec!.date) > cooldown) || mean <= rec!.value - 5
                     if fresh {
                         var body = "Bz has averaged \(String(format: "%.1f", mean)) nT for \(Int(settings.bzMinutes))+ min"
                         if let streak = nowcast.streak, streak.isSouth {
@@ -341,10 +419,10 @@ public enum AlertEngine {
                 if settings.activityEnabled, nowcast.level >= settings.minActivity, nowcast.level > .quiet {
                     let rec = state.sent["activity"]
                     let level = Double(nowcast.level.rawValue)
-                    let fresh = rec == nil || level > rec!.value || now.timeIntervalSince(rec!.date) > cooldown
-                    // A shock or GOES alert sent just now already says "activity may build" — don't
-                    // send a second notification for the same event (it will still escalate later).
-                    let justWarned = alerts.contains { $0.kind == .shock || $0.kind == .goes }
+                    let fresh = rec == nil || level > rec!.value || (!out && now.timeIntervalSince(rec!.date) > cooldown)
+                    // A shock, GOES or ground alert sent just now already says "activity may build" —
+                    // don't send a second notification for the same event (it will still escalate later).
+                    let justWarned = alerts.contains { $0.kind == .shock || $0.kind == .goes || $0.kind == .ground }
                     if fresh && justWarned && nowcast.level == .possible {
                         state.sent["activity"] = .init(date: now, value: level)
                     } else if fresh {
@@ -367,6 +445,32 @@ public enum AlertEngine {
                         state.sent["activity"] = .init(date: now, value: level)
                     }
                 }
+
+                // You're out and it has gone quiet after some activity: say so once.
+                if out, let since = state.outSince, now.timeIntervalSince(since) >= 30 * 60 {
+                    let key = "fading-\(Int(since.timeIntervalSince1970))"
+                    // Only after there was something to see (a real-time alert from 2 h before you
+                    // went out onward) — otherwise "it has faded" makes no sense.
+                    let hadActivity = state.sent.contains { entry in
+                        let realtime = ["activity", "bz", "groundstorm"].contains(entry.key)
+                            || entry.key.hasPrefix("ground-") || entry.key.hasPrefix("goes-")
+                        return realtime && entry.value.date >= since.addingTimeInterval(-2 * 3600)
+                    }
+                    let calm = nowcast.level == .quiet
+                        && (nowcast.bzMean30 ?? 0) > -2
+                        && (nowcast.ground.map { $0.disturbance < 75 } ?? true)
+                        && (nowcast.goesJump.map { now.timeIntervalSince($0.time) > 30 * 60 } ?? true)
+                    if calm && hadActivity && state.sent[key] == nil {
+                        var body = "Things have calmed down"
+                        if let bz = nowcast.bzMean30 { body += ": Bz \(String(format: "%+.1f", bz)) nT" }
+                        if let kp = nowcast.estimatedKp { body += ", Kp ≈ \(String(format: "%.1f", kp))" }
+                        if let g = nowcast.ground { body += ", the field at \(g.station.name) is back near normal" }
+                        body += ". Aurora can return with the next substorm — you'll get an alert if it does."
+                        alerts.append(AuroraAlert(id: key, date: now, kind: .activity, title: "🌙 Aurora activity has faded",
+                                                  body: body, priority: 2, tags: ["crescent_moon"]))
+                        state.sent[key] = .init(date: now, value: 1)
+                    }
+                }
             }
         }
 
@@ -386,6 +490,7 @@ public enum AlertEngine {
         if settings.noaaEnabled {
             for alert in snapshot.alerts where !state.seenNOAA.contains(alert.dedupeKey) {
                 state.seenNOAA.insert(alert.dedupeKey)
+                if snoozed { continue }
                 // On first launch, only pass along very recent messages.
                 if firstRun && now.timeIntervalSince(alert.issued) > 2 * 3600 { continue }
                 if now.timeIntervalSince(alert.issued) > 24 * 3600 { continue }
@@ -445,6 +550,7 @@ public enum AlertEngine {
 
         func add(_ key: String, _ fireDate: Date, _ value: Double, _ alert: AuroraAlert) {
             guard fireDate > now.addingTimeInterval(60) else { return }
+            if let until = state.snoozedUntil, fireDate < until { return }
             if let rec = state.sent[key], value < rec.value + 1 { return }
             plans.append(PlannedAlert(key: key, fireDate: fireDate, value: value, alert: alert))
         }
@@ -527,5 +633,21 @@ public enum AlertEngine {
             if line.hasPrefix("Highest Storm Level"), i + 1 < lines.count { picked.append(lines[i + 1]) }
         }
         return picked.isEmpty ? shortHeadline(alert) : picked.joined(separator: "\n")
+    }
+}
+
+/// Time spans for the notification buttons ("Snooze tonight", "I'm heading out").
+public enum Outing {
+    /// When tonight's dark sky ends (nautical dawn), for "Snooze tonight". During the day this is
+    /// the end of the coming night.
+    public static func endOfNight(location: ObserverLocation, now: Date) -> Date {
+        let sky = Sky.nightSky(nightOf: Sky.currentNightOf(now: now, location: location), location: location)
+        let end = sky.nauticalDawn ?? sky.sunrise ?? now.addingTimeInterval(12 * 3600)
+        return end > now ? end : now.addingTimeInterval(12 * 3600)
+    }
+
+    /// How long "I'm heading out" lasts: three hours, or until dawn if that's sooner.
+    public static func outingEnd(location: ObserverLocation, now: Date) -> Date {
+        min(now.addingTimeInterval(3 * 3600), endOfNight(location: location, now: now))
     }
 }

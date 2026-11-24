@@ -12,6 +12,15 @@ enum Theme {
         startPoint: .top, endPoint: .bottom
     )
 
+    static func groundColor(_ level: GroundActivity) -> Color {
+        switch level {
+        case .quiet: return .primary
+        case .unsettled: return .yellow
+        case .active: return .orange
+        case .storm: return .red
+        }
+    }
+
     static func kpColor(_ kp: Double) -> Color {
         switch KpFormat.gScale(kp) {
         case 0: return kp >= 4 ? .yellow : aurora

@@ -50,6 +50,8 @@ public struct Nowcast: Codable, Hashable {
     public var shock: ShockEvent?
     /// A sudden rise in the field at a GOES satellite in the last hour (substorm or compression).
     public var goesJump: GoesJump?
+    /// The nearest ground magnetometer, if its data is current.
+    public var ground: GroundReading?
     public var travelTime: TimeInterval?
     public var cloudCover: Double?
     public var moonIllumination: Double
@@ -72,7 +74,9 @@ public enum Outlook {
     /// * Solar wind coupling (Newell, 30-min mean; uses speed, Bz and By) — up to 25
     /// * OVATION hemispheric power — up to 20
     /// * OVATION probability in the northern sky — up to 15
-    public static func nowcast(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, darkness: Double = -12, goesThreshold: Double = 20, now: Date) -> Nowcast {
+    /// * Nearest ground magnetometer's disturbance — up to 15
+    public static func nowcast(snapshot: SpaceWeatherSnapshot, location: ObserverLocation, darkness: Double = -12,
+                               goesThreshold: Double = 20, groundThreshold: Double = 100, now: Date) -> Nowcast {
         let thresholds = location.visibility
         var factors: [OutlookFactor] = []
         var score = 0.0
@@ -192,6 +196,30 @@ public enum Outlook {
             ))
         }
 
+        // Nearest ground magnetometer: the auroral currents themselves, as close to you as it gets.
+        let ground = snapshot.groundReading(now: now).flatMap { $0.isFresh(now: now) ? $0 : nil }
+        let groundSurge = ground?.surge.flatMap { abs($0.change) >= groundThreshold && now.timeIntervalSince($0.time) < 30 * 60 ? $0 : nil }
+        if let g = ground {
+            let part = clamp((g.disturbance - 50) / 350) * 15
+            score += part
+            let km = Int((g.station.distanceKm(to: location) / 10).rounded()) * 10
+            var detail: String
+            switch g.level {
+            case .quiet: detail = "Quiet — no strong auroral currents nearby"
+            case .unsettled: detail = "Some auroral current activity \(km) km away"
+            case .active: detail = "Active auroral currents \(km) km away — aurora may be in your northern sky"
+            case .storm: detail = "Strong auroral currents \(km) km away — aurora is likely close to you"
+            }
+            if let s = groundSurge {
+                detail += "; \(String(format: "%+.0f", s.change)) nT in \(s.minutes) min at \(TimeText.time(s.time, location.timeZone)) (a substorm)"
+            }
+            factors.append(.init(
+                name: "\(g.station.name) magnetometer \(String(format: "%+.0f", g.deviation)) nT",
+                detail: detail,
+                effect: g.level >= .active || groundSurge != nil ? .positive : .neutral, points: Int(part.rounded())
+            ))
+        }
+
         // Shock
         let shock = (magFresh || plasmaFresh) ? SolarWind.detectShock(plasma: snapshot.plasma, mag: snapshot.mag, now: now) : nil
         if let shock {
@@ -227,6 +255,10 @@ public enum Outlook {
             ))
             if jump.nightSide && now.timeIntervalSince(jump.time) < 30 * 60 { level = max(level, .possible) }
         }
+        if let g = ground {
+            if g.level >= .storm { level = max(level, .likely) } else if g.level >= .active { level = max(level, .possible) }
+            if groundSurge != nil { level = max(level, .possible) }
+        }
 
         let sunAlt = Sky.sunAltitude(at: now, for: location)
         let cloud = cloudCover(at: now, clouds: snapshot.clouds)
@@ -248,6 +280,7 @@ public enum Outlook {
             streak: magFresh ? SolarWind.bzStreak(snapshot.mag, threshold: -5, now: magEnd) : nil,
             shock: shock,
             goesJump: goesJump,
+            ground: ground,
             travelTime: SolarWind.currentTravelTime(snapshot: snapshot, now: now),
             cloudCover: cloud, moonIllumination: moon,
             dataIsFresh: magFresh && plasmaFresh

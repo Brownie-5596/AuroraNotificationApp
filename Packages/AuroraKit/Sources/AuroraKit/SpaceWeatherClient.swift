@@ -10,7 +10,7 @@ public final class SpaceWeatherClient {
 
     public enum Feed: String, CaseIterable {
         case mag, wind, propagated, kp, kpForecast, kp1m, hemiPower, goesPrimary, goesSecondary, xray, flare
-        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds, wind7, predictedKp
+        case alerts, scales, ovation, threeDay, geomag, outlook27, enlil, clouds, wind7, predictedKp, ground
     }
 
     let session: URLSession
@@ -104,6 +104,13 @@ public final class SpaceWeatherClient {
         let sameLocation = previous?.location == location
         let reuseClouds = sameLocation && (previous.flatMap { p in p.cloudsFetchedAt.map { now.timeIntervalSince($0) < 2 * 3600 && !p.clouds.isEmpty } } ?? false)
 
+        let station = GroundStation.nearest(to: location)
+        let previousGround = previous?.groundStation == station ? previous?.groundMag ?? [] : []
+        async let ground = attempt { () async throws -> [GroundMagSample] in
+            guard let station else { return [] }
+            return try await self.fetchGround(station: station, previous: previousGround, hours: 6, now: now)
+        }
+
         let previousOutlook = previous?.outlook27Raw ?? ""
         let previousCME = previous?.cmeArrivals ?? []
         let previousClouds = previous?.clouds ?? []
@@ -159,6 +166,8 @@ public final class SpaceWeatherClient {
         snap.goesPrimary = Self.merge(goesWeek1 ?? previous?.goesPrimary ?? [], take(await goes1, .goesPrimary) ?? [], now: now, time: { $0.time })
         snap.goesSecondary = Self.merge(goesWeek2 ?? previous?.goesSecondary ?? [], take(await goes2, .goesSecondary) ?? [], now: now, time: { $0.time })
         snap.xray = Self.merge(xrayHistory ?? previous?.xray ?? [], take(await xray, .xray) ?? [], now: now, time: { $0.time })
+        snap.groundStation = station
+        snap.groundMag = take(await ground, .ground) ?? previousGround
         snap.latestFlare = take(await flare, .flare) ?? nil
         snap.alerts = take(await alerts, .alerts) ?? previous?.alerts ?? []
         snap.scales = take(await scales, .scales) ?? previous?.scales
@@ -234,6 +243,12 @@ public final class SpaceWeatherClient {
             if ovationFresh { return previousOvation }
             return try FeedParser.ovation(try await self.data(self.swpc("/json/ovation_aurora_latest.json")), latitude: location.latitude, longitude: location.longitude)
         }
+        let station = GroundStation.nearest(to: location)
+        let previousGround = previous?.groundStation == station ? previous?.groundMag ?? [] : []
+        async let ground = attempt { () async throws -> [GroundMagSample] in
+            guard let station else { return [] }
+            return try await self.fetchGround(station: station, previous: previousGround, hours: 3, now: now)
+        }
         let cmeFresh = Self.skipCME(previous, now: now)
         async let cme = attempt { () async throws -> [CMEArrival]? in
             if cmeFresh { return nil }
@@ -270,6 +285,8 @@ public final class SpaceWeatherClient {
         if let v = take(await goes1, .goesPrimary) { snap.goesPrimary = Self.merge(snap.goesPrimary, v, now: now, time: { $0.time }) }
         if let v = take(await goes2, .goesSecondary) { snap.goesSecondary = Self.merge(snap.goesSecondary, v, now: now, time: { $0.time }) }
         if let v = take(await ovation, .ovation) { snap.ovation = v }
+        snap.groundStation = station
+        snap.groundMag = take(await ground, .ground) ?? previousGround
         if !cmeFresh { snap.cmeTriedAt = now }
         switch await cme {
         case .success(let arrivals?):
@@ -343,6 +360,27 @@ public final class SpaceWeatherClient {
                     "api.nasa.gov: \(describe(primaryError)); CCMC: \(describe(error))"])
             }
         }
+    }
+
+    /// One-minute northward field from a ground magnetometer, appended to `previous` (same station).
+    /// Only asks for what's new since the last sample, so after the first fetch (`hours` of data,
+    /// ~30 KB an hour from NRCan) each refresh is a few KB.
+    public func fetchGround(station: GroundStation, previous: [GroundMagSample], hours: Double, now: Date) async throws -> [GroundMagSample] {
+        let earliest = now.addingTimeInterval(-hours * 3600)
+        let start = max(earliest, previous.last?.time.addingTimeInterval(-10 * 60) ?? earliest)
+        let end = now.addingTimeInterval(5 * 60)
+        let utc = TimeZone(identifier: "UTC")!
+        func stamp(_ date: Date) -> String { TimeText.format(date, utc, "yyyy-MM-dd'T'HH:mm:ss") }
+        let fresh: [GroundMagSample]
+        switch station.source {
+        case .nrcan:
+            let url = URL(string: "https://www.earthquakescanada.nrcan.gc.ca/fdsnws/dataselect/1/query?network=C2&station=\(station.id)&location=R0&channel=UFX&starttime=\(stamp(start))&endtime=\(stamp(end))")!
+            fresh = FeedParser.groundMiniSEED(try await data(url, session: optionalSession))
+        case .usgs:
+            let url = URL(string: "https://geomag.usgs.gov/ws/data/?id=\(station.id)&elements=X&sampling_period=60&format=json&starttime=\(stamp(start))Z&endtime=\(stamp(end))Z")!
+            fresh = try FeedParser.groundUSGS(try await data(url, session: optionalSession))
+        }
+        return Self.merge(previous, fresh, now: now, time: { $0.time })
     }
 
     public func fetchClouds(location: ObserverLocation) async throws -> [CloudPoint] {

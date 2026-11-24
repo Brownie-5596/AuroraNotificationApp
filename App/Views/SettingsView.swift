@@ -77,6 +77,8 @@ struct SettingsView: View {
             if let checkResult { Text(checkResult).font(.caption).foregroundStyle(.secondary) }
         } header: {
             Text("Notifications")
+        } footer: {
+            Text("Press and hold an alert (or swipe it left and tap View) for buttons: **I'm heading out** (checks every minute and only tells you what changes), **Snooze 1 hour** or **Snooze tonight**. Tonight's forecast alert has **Remind me when it's dark**. The same choices are in the 🚶 menu on the Now tab.")
         }
     }
 
@@ -161,9 +163,16 @@ struct SettingsView: View {
             }
             Stepper("for \(Int(model.settings.bzMinutes)) minutes", value: $model.settings.bzMinutes, in: 5...60, step: 5)
             Toggle("Shock / sudden jump at L1", isOn: $model.settings.shockEnabled)
-            Toggle("GOES jump (substorm / compression)", isOn: $model.settings.goesEnabled)
-            if model.settings.goesEnabled {
-                Stepper("GOES rise ≥ \(Int(model.settings.goesJump)) nT in 10 min", value: $model.settings.goesJump, in: 10...50, step: 5)
+            Group {
+                Toggle("GOES jump (substorm / compression)", isOn: $model.settings.goesEnabled)
+                if model.settings.goesEnabled {
+                    Stepper("GOES rise ≥ \(Int(model.settings.goesJump)) nT in 10 min", value: $model.settings.goesJump, in: 10...50, step: 5)
+                }
+                Toggle("Nearby magnetometer (substorm close to you)", isOn: $model.settings.groundEnabled)
+                if model.settings.groundEnabled {
+                    Stepper("Change ≥ \(Int(model.settings.groundChange)) nT in 15 min", value: $model.settings.groundChange, in: 50...300, step: 25)
+                    Text(groundStationText).font(.caption).foregroundStyle(.secondary)
+                }
             }
             Toggle("Activity level alerts", isOn: $model.settings.activityEnabled)
             Picker("Minimum level", selection: $model.settings.minActivity) {
@@ -181,7 +190,7 @@ struct SettingsView: View {
         } header: {
             Text("Real time (next ~30–60 min)")
         } footer: {
-            Text("\"Heads up\" alerts fire when Bz stays south past your limit, when a shock hits the L1 spacecraft (it reaches Earth in 30–60 min), when a GOES satellite sees the field jump (a substorm on the night side — aurora brightening now), or when the overall aurora chance climbs. Good starting point: −7 nT for 15 min. Lower it (−5) to hear about more events, raise it (−10) for only big ones.")
+            Text("\"Heads up\" alerts fire when Bz stays south past your limit, when a shock hits the L1 spacecraft (it reaches Earth in 30–60 min), when a GOES satellite sees the field jump (a substorm on the night side — aurora brightening now), when the nearest ground magnetometer swings suddenly (a substorm close to you), or when the overall aurora chance climbs. Good starting point: −7 nT for 15 min. Lower it (−5) to hear about more events, raise it (−10) for only big ones.")
         }
     }
 
@@ -268,6 +277,15 @@ struct SettingsView: View {
         case .provisional, .ephemeral: return "Quiet"
         default: return "Not set up"
         }
+    }
+
+    var groundStationText: String {
+        let location = model.settings.location
+        guard let station = GroundStation.nearest(to: location) else {
+            return "There's no magnetometer with live data within 1,000 km of \(location.name)."
+        }
+        let km = Int((station.distanceKm(to: location) / 10).rounded()) * 10
+        return "Uses \(station.name), \(km) km from \(location.name). On a quiet night it moves less than 20 nT."
     }
 
     func hourText(_ hour: Int) -> String {

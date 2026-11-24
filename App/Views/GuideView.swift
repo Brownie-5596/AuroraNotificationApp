@@ -70,8 +70,15 @@ struct GuideView: View {
                 **Forecast** — NOAA's 3-day Kp forecast during your dark hours reaches your Kp setting: one alert 2–3 days ahead, one the day before, one the day of. Upgrades by a full Kp alert again.
                 **CME** — NASA's WSA-ENLIL model predicts an Earth impact; another alert when the arrival window is <8 h away.
                 **Heads up** — Bz stays at or below your limit for your chosen minutes, or a shock hits L1 (with time-to-Earth).
-                **Happening now** — the aurora chance score (Kp, Ey, hemispheric power, OVATION) reaches Possible / Likely / Strong.
+                **Substorm** — a GOES satellite or the nearest ground magnetometer (Brandon, MB for Grand Forks) sees the field swing suddenly: aurora brightening now.
+                **Happening now** — the aurora chance score (Kp, coupling, hemispheric power, OVATION, the nearby magnetometer) reaches Possible / Likely / Strong.
                 Real-time alerts only fire when it's dark (configurable) and repeat at most every \(Int(model.settings.cooldownHours)) h unless things get stronger.
+                """)
+                section("Notification buttons", """
+                Press and hold a real-time alert for:
+                • **I'm heading out** — for the next 3 hours (or until dawn) the app checks every minute and only tells you what *changes*: stronger activity, a substorm, or that it has faded so you can head in.
+                • **Snooze 1 hour** / **Snooze tonight** — no real-time alerts until then.
+                Tonight's forecast alert has **Remind me when it's dark**. The same choices are in the 🚶 menu at the top of the Now tab.
                 """)
                 section("Viewing tips", """
                 • Get away from town lights and look **north**. A phone in night mode often shows colour your eyes can't.
@@ -83,7 +90,7 @@ struct GuideView: View {
                 • **Forecast alerts** (tonight, tomorrow night, CME arrival) are booked with iOS in advance, so they arrive even if the app stays closed.
                 • **Real-time heads-ups** need the app running. Turn on **Night Watch** (Settings) to keep it checking every few minutes after dark, or use a Shortcuts automation to trigger checks at set times.
                 """)
-                Text("Data: NOAA SWPC, NASA DONKI/CCMC, Open-Meteo. Not an official forecast.")
+                Text("Data: NOAA SWPC, NASA DONKI/CCMC, Natural Resources Canada, USGS, Open-Meteo. Not an official forecast.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .padding()

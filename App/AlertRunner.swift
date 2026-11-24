@@ -37,6 +37,11 @@ enum AlertRunner {
         var state = store.alertState
         let alerts = AlertEngine.evaluate(snapshot: snapshot, settings: settings, state: &state)
         let plans = AlertEngine.plan(snapshot: snapshot, settings: settings, state: &state)
+        // A snooze or "heading out" tapped while this check ran wins over the copy we started with.
+        let latest = store.alertState
+        state.snoozedUntil = latest.snoozedUntil
+        state.outSince = latest.outSince
+        state.outUntil = latest.outUntil
         store.alertState = state
         for alert in alerts { await Notifier.post(alert) }
         await Notifier.schedule(plans)
@@ -92,7 +97,19 @@ enum Notifier {
         // Time-sensitive delivery needs an entitlement sideloaded apps can't get, so stay "active".
         content.interruptionLevel = .active
         content.relevanceScore = Double(alert.priority) / 5
+        if let category = NotificationActions.category(for: alert.kind) { content.categoryIdentifier = category }
         return content
+    }
+
+    /// Removes booked reminders that would go off before `date` (used by "Snooze").
+    static func dropPlans(before date: Date) async {
+        let center = UNUserNotificationCenter.current()
+        let ids = await center.pendingNotificationRequests().filter { request in
+            guard request.identifier.hasPrefix("plan-") || request.identifier.hasPrefix("remind-dark-") else { return false }
+            let fire = (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate() ?? .distantFuture
+            return fire < date
+        }.map(\.identifier)
+        center.removePendingNotificationRequests(withIdentifiers: ids)
     }
 
     /// Replaces previously scheduled reminders with `plans`, so iOS delivers them on time even if

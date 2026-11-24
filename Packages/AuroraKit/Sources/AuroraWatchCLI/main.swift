@@ -102,7 +102,14 @@ do {
         print("feed \(feed): \(error)")
     }
 
-    let nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, now: now)
+    let nowcast = Outlook.nowcast(snapshot: snapshot, location: settings.location, goesThreshold: settings.goesJump,
+                                  groundThreshold: settings.groundChange, now: now)
+    if let g = snapshot.groundReading(now: now) {
+        print("Ground \(g.station.id): \(snapshot.groundMag.count) min, latest \(Int(now.timeIntervalSince(g.time) / 60)) min ago, deviation \(String(format: "%+.0f", g.deviation)) nT, 1-h range \(Int(g.range60)) nT, \(g.level.title)"
+              + (g.surge.map { ", biggest 15-min change \(String(format: "%+.0f", $0.change)) nT" } ?? ""))
+    } else if let station = snapshot.groundStation {
+        print("Ground \(station.id): \(snapshot.groundMag.count) min (not enough for a reading yet)")
+    }
     print("Nowcast: \(nowcast.level.title) score=\(nowcast.score) kp=\(nowcast.estimatedKp.map { String(format: "%.2f", $0) } ?? "-") bz=\(nowcast.bz.map { String(format: "%.1f", $0) } ?? "-") sun=\(String(format: "%.1f", nowcast.sunAltitude))°")
     for night in Outlook.nights(snapshot: snapshot, location: settings.location, now: now) {
         print("Night +\(night.daysAhead): max Kp \(KpFormat.label(night.maxKp)) [\(night.source.rawValue)] \(night.visibility.short)")
@@ -141,6 +148,10 @@ do {
     keep.outlook27Raw = snapshot.outlook27Raw
     keep.outlook27 = snapshot.outlook27
     keep.outlookFetchedAt = snapshot.outlookFetchedAt
+    // The ground magnetometer's last day, so each run only downloads the newest minutes and the
+    // "normal level" has a full day behind it.
+    keep.groundStation = snapshot.groundStation
+    keep.groundMag = snapshot.groundMag.filter { now.timeIntervalSince($0.time) <= 26 * 3600 }
     stored.snapshot = keep
 
     do {
