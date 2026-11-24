@@ -6,13 +6,17 @@ A sideloadable iOS app that tells you when there's a real chance of seeing the n
 
 **Now** (live dashboard)
 - **Aurora chance score (0–100)** for your location, with the reasons behind it: Kp, Bz, solar wind speed, hemispheric power, OVATION, darkness, clouds and moon.
-- Tiles: Kp (in NOAA thirds, e.g. `5-`), NOAA R/S/G scales, Bz, Bt, speed, density, temperature, Ey (coupling), hemispheric power, X-ray class, OVATION %, dynamic pressure.
+- Tiles: Kp (in NOAA thirds, e.g. `5-`), NOAA R/S/G scales, Bz, Bt, speed, density, temperature, Ey, hemispheric power, X-ray class, OVATION %, dynamic pressure, plus:
+  - **Next-hour Kp** — NOAA's Geospace model forecast for the coming ~hour.
+  - **Coupling** — the Newell coupling function (uses speed, Bz *and* By; the best single predictor of auroral power).
+  - **Oval edge** — how far north of you the OVATION oval's edge is, and how high above your horizon that puts it.
 - **Bz streak card:** how long Bz has been south, the lowest and average value, total nT·min, time spent below your alert threshold, and the share of the last 3 h that was south.
 - **Time to Earth:** what L1 measures now reaches Earth in N minutes (from NOAA's propagated solar wind). Shock detection with an impact time. CME arrival countdowns.
 - Charts with 30M–24H ranges: Bz/Bt (south shaded red), Bx/By, speed, density, temperature, Ey, 7-day Kp with forecast, hemispheric power, 1-min Kp, GOES magnetometers, GOES X-ray.
 
 **Forecast**
 - Tonight + the next 3 nights: highest Kp *during your dark hours*, the peak time, what you'll likely see, cloud cover (Open-Meteo), moon.
+- **Tonight hour by hour**: darkness, expected Kp, clouds and whether the Moon is up for each hour, with the best time to go out highlighted.
 - NOAA 3-day Kp forecast, 3-day geomagnetic probabilities, NOAA scales outlook, 27-day outlook chart.
 - **CMEs heading for Earth** (NASA WSA-ENLIL via DONKI): arrival time ±7 h, Kp estimate, plus a drag-based-model estimate from the CME's launch speed.
 - **CME travel-time calculator**: slide the launch speed, get the arrival time.
